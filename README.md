@@ -9,15 +9,28 @@ This driver for Hubitat Elevation works with [Venstar ColorTouch Thermostats](ht
 
 I suspect that the commercial versions of these models (the T8850 and T8900) will also work.
 
-This is a new, completely rewritten driver offered under the very liberal MIT license, as the previous supporter of the driver decided to take his toys and go home. For clarity, as this driver is now released to the public as Open Source, under U.S. law (the governing law for this author), the "performance" has been started and thus the license can never be withdrawn. That is, now that I've offered it to you, you have a right to use it forever more, and I cannot (and would not) withdraw that right.
+This is a new, completely rewritten driver offered under the very liberal MIT license. The previous maintainer "withdrew" his version of the driver &mdash; a questionable concept legally, but regardless, I'm happy to start over and license a new work under terms more favorable to the Hubitat community. For clarity, as this driver is now released to the public as Open Source under the MIT License, under U.S. law (the governing law for this author), the "performance" has been started and thus the license and your right to use this driver can never be withdrawn. Enjoy!
+
+Other features of this new version include:
+
+* Support for standard capabilities: Thermostat, TemperatureMeasurement, RelativeHumidityMeasurement, PresenceSensor;
+* Extended (driver-specific) support for humidification/dehumidification (T7900/8900);
+* Control of effective state of thermostat's program schedule;
+* Control of the selection of *Home* or *Away* (e.g. vacation) settings selection;
+* HTTPS protocol with optional HTTP user authentication for improved security on your LAN (HTTP Basic and Digest authentication supported).
+
+Future:
+
+* Child devices for additional sensors;
+* Retrieval/storage/availability of thermostat's collected runtime stats.
 
 ## About the Author
 
 Before diving in, I'll say that I'm relatively new to Hubitat and this is my first driver for the platform. I am and have been a prolific developer of plugins for the [Vera](https://community.ezlo.com/) hub (I'm known as rigpapa in that community and have 14 plugins widely used), and I am the author of [Multi-hub Reactor](https://reactor.toggledbits.com/docs/), a cross-hub rules engine that serves as an alternative to Node-Red and the rules engines of Vera, Home Assistant, Hubitat, and eZLO hubs. So while I have some experience in HA, my work here in the Hubitat community is relatively new, and I'd appreciate any guidance as I learn the platform and groovy.
 
-## Installation ##
+## Installation
 
-### Configuring Your Venstar ColorTouch Thermostat ###
+### Configuring Your Venstar ColorTouch Thermostat
 
 **IMPORTANT!** Be sure to perform these configuration steps before installing the driver. It will make your life easier.
 
@@ -49,7 +62,7 @@ You can then create a device for the thermostat using the driver.
 
 Configuration should be pretty straight-forward. You need to supply the IP address of the thermostat and select the API protocol (HTTP or HTTPS), at a minimum, and of course, these need to match the configuration of the thermostat itself.
 
-If you are using HTTPS, the thermostat will allow you to configure an authentication username and password. If you choose this option, you will need to supply that username and password to the driver in the fields indicated. Otherwise, leave these fields blank.
+If you are using HTTPS, the thermostat will allow you to configure an authentication username and password. If you choose this option, you will need to supply that username and password to the driver in the fields indicated. Otherwise, leave these fields blank. See *Improving Security* below.
 
 The *Polling Interval* determines how often the driver queries the thermostat for new data. The Venstar local API does not "notify" the driver/hub of changes, so the driver must poll. This creates a delay in response to manual changes at the thermostat up to the length of the polling interval. The protocol is lightweight, so a polling interval of 60 seconds (the default) should present no significant load to either the hub or thermostat. Intervals of less than 15 seconds are not recommended, however.
 
