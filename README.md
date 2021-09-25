@@ -33,21 +33,13 @@ Once you have completed these steps, confirm that your thermostat's API is reach
 
 ### Installation from GitHub ###
 
-If you are installing for the first time:
-
-1. Log in to your hub.
-2. Go to the *Drivers Code* page.
-3. Click the *New Driver* button.
-
-If you are upgrading from a previous version:
-
 1. Log in to your hub.
 2. Go to the *Drivers Code* page.
 3. If *Venstar ColorTouch Thermostat* is listed there, click on that entry to go into its code. Otherwise, click the *New Driver* button.
 4. Click the *Import* button.
 5. Copy-paste this URL:
 
-      https://raw.githubusercontent.com/toggledbits/VenstarColorTouch-Hubitat/main/drivers/VenstarColorTouch.groovy
+        https://raw.githubusercontent.com/toggledbits/VenstarColorTouch-Hubitat/main/drivers/VenstarColorTouch.groovy
 
 6. Click the *Import* button. Your driver will be installed/updated.
 
