@@ -285,7 +285,7 @@ private def queryInfoCallback(response) {
             data.cooltemp = coalesce( data.cooltemp, { temp->fahrenheitToCelsius( temp ) } )
             data.heattemp = coalesce( data.heattemp, { temp->fahrenheitToCelsius( temp ) } )
         }
-        updateChanged( "temperature", data.spacetemp, "Ambient is now ${data.spacetemp}", scale );
+        updateChanged( "temperature", data.spacetemp, "Ambient temperature is now ${data.spacetemp}", scale );
         updateChanged( "coolingSetpoint", data.cooltemp, "Cooling setpoint is now ${data.cooltemp}", scale );
         updateChanged( "heatingSetpoint", data.heattemp, "Heating setpoint is now ${data.heattemp}", scale );
 
