@@ -108,16 +108,17 @@ The following driver-specific commands are defined:
 
 Here are some other things/behaviors you need to know about:
 
-* If the fan is running when the thermostat is idle (not heating or cooling), the `thermostatOperatingState` will be reported as `fan only` (in addition to the `thermostatFanOperatingState` showing `on`).
-* While the thermostat does have a "circulate" mode in which the fan is run for a configured number of minutes per hour, this is not specifically a separate mode for the fan, it just happens when the fan is in "auto" mode. Therefore, the `fanCirculate` command is the same as `fanAuto`.
+* The `thermostatSetpoint` reflects the setpoint last in effect. If the thermostat mode is `heat` or `cool`, then it's pretty clear what this value should be. When the mode is `auto`, it's less clear, so the determination is made based on the operating state: if the thermostat is currently (or was most recently) heating the space, then the heating setpoint is certainly in effect and its value is shown; likewise for cooling. I don't think this value is very useful, honestly, but it's part of the standard capability so I've implemented it, as described. Use the mode-specific setpoints in preference to this generic one.
 * When setting the heating and cooling setpoints, there is a "deadband" enforced between the two. This is configurable at the thermostat (referred to as the "Setpoint Delta"), and the driver uses this value as well to enforce the separation between the setpoints. For example, if you try to set the cooling setpoint too close to, or below, the heating setpoint, the heating setpoint is reduced to maintain the deadband. The extrema (min/max allowed values) of the setpoints are also considered and enforced.
+* If the fan is running when the thermostat is idle (not heating or cooling), the `thermostatOperatingState` will be reported as `fan only` (in addition to the `thermostatFanOperatingState` showing `on`).
+* While the thermostat does have a "circulate" mode in which the fan is run for a configured number of minutes per hour, this is not specifically a separate mode for the fan, it just happens when the fan is in "auto" mode (and you can only disable the feature by reconfiguring the thermostat). Therefore, the `fanCirculate` command is a synonym for `fanAuto`.
 * The thermostat has no deadband for the humidification and dehumidication setpoints currently, so no attempt is made to enforce their separation. Caveat emptor.
 * I have not, as yet, seen any identifiable way on the thermostat or in the API to know when humidification or dehumidification is running, so there is no state for these. Perhaps Venstar will add these to a future firmware and API.
 * If your thermostat does not support heating or cooling, that may be reflected in `supportedThermostatModes`, but it is not enforced by the driver.
 
 ## Improving Security -- Basic Auth and HTTPS ##
 
-With respect to security, there are basically three generations of Venstar ColorTouch thermostats: those that support no security whatsoever (very outdated firmware), those that support HTTP Basic Authentication and HTTPS (not the latest firmware, but improved), and those that support HTTP Digest Authentication and HTTPS (not perfect, but better than Basic). Users concerned with vulnerability of their IoT devices will want to upgrade their thermostats to the latest firmware and use HTTP Digest Authentication.
+With respect to security, there are basically three generations of Venstar ColorTouch thermostat firmware: those that support no security whatsoever (very outdated firmware), those that support HTTP Basic Authentication and HTTPS (not the latest firmware, but improved), and those that support HTTP Digest Authentication and HTTPS (not perfect, but much better than Basic). Users concerned with vulnerability of their IoT devices should use HTTPS with username/password authentication. Ideally, users should upgrade their thermostats to the latest firmware that does HTTP Digest authentication.
 
 At the thermostat:
 
