@@ -17,16 +17,18 @@ Other features of this new version include:
 * Extended (driver-specific) support for humidification/dehumidification (T7900/8900);
 * Control of effective state of thermostat's program schedule;
 * Control of the selection of *Home* or *Away* (e.g. vacation) settings selection;
-* HTTPS protocol with optional HTTP user authentication for improved security on your LAN (HTTP Basic and Digest authentication supported).
+* HTTPS (SSL/TLS) support with optional HTTP user authentication for improved security on your LAN (HTTP Basic and Digest authentication methods supported).
 
 Future:
 
 * Child devices for additional sensors;
 * Retrieval/storage/availability of thermostat's collected runtime stats.
 
+Refer to the `CHANGELOG` file for release notes.
+
 ## About the Author
 
-Before diving in, I'll say that I'm relatively new to Hubitat and this is my first driver for the platform. I am and have been a prolific developer of plugins for the [Vera](https://community.ezlo.com/) hub (I'm known as rigpapa in that community and have 14 plugins widely used), and I am the author of [Multi-hub Reactor](https://reactor.toggledbits.com/docs/), a cross-hub rules engine that serves as an alternative to Node-Red and the rules engines of Vera, Home Assistant, Hubitat, and eZLO hubs. So while I have some experience in HA, my work here in the Hubitat community is relatively new, and I'd appreciate any guidance as I learn the platform and groovy.
+Before diving in, I'll say that I'm relatively new to Hubitat and this is my first driver for the platform. I am and have been a prolific developer of plugins for the [Vera](https://community.ezlo.com/) hub (including the Vera Venstar ColorTouch driver; I'm known as rigpapa in that community and have 14 plugins widely used), and I am the author of [Multi-hub Reactor](https://reactor.toggledbits.com/docs/), a cross-hub rules engine that serves as an alternative to Node-Red and the rules engines of Vera, Home Assistant, Hubitat, and eZLO hubs. So while I have some experience in HA, my work here in the Hubitat community is relatively new, and I'd appreciate any guidance as I learn the platform and groovy.
 
 ## Installation
 
@@ -38,13 +40,13 @@ The following must be configured on your thermostat:
 
 1. Go to the "Wi-Fi Status" page (under the "Wi-Fi" menu), and confirm that you are connected to the network and have good signal strength--if not, configure or troubleshoot that before continuing (see your thermostat's documentation);
 1. Under the "Wi-Fi" menu, turn on the "Local API";
-1. Under the "Wi-Fi" menu, the "API Protocol" may be either HTTP or HTTPS, but use HTTP for now;
-1. Assign your thermostat a DHCP-reserved IP address at your DHCP server, or a static IP address in the thermostat interface.
+1. Under the "Wi-Fi" menu, select 'HTTP' as the "API Protocol" for now; you can change it later, but let's keep the variables to a minimum for initial setup.
+1. Assign your thermostat a DHCP-reserved IP address at your DHCP server/router, or a static IP address in the thermostat interface.
 1. Power-cycle the thermostat.
 
 Once you have completed these steps, confirm that your thermostat's API is reachable by opening the thermostat in a browser. For example, if your thermostat's assigned IP (from step 2) is 192.168.9.100, then you would open `http://192.168.9.100/`. You should get a short JSON response containing the string "api_ver" (it does not matter what version of the API your thermostat uses).
 
-### Installation from GitHub ###
+### Driver Installation (on hub)
 
 1. Log in to your hub.
 2. Go to the *Drivers Code* page.
@@ -58,7 +60,7 @@ Once you have completed these steps, confirm that your thermostat's API is reach
 
 You can then create a device for the thermostat using the driver.
 
-## Configuration
+## Device Configuration
 
 Configuration should be pretty straight-forward. You need to supply the IP address of the thermostat and select the API protocol (HTTP or HTTPS), at a minimum, and of course, these need to match the configuration of the thermostat itself.
 
@@ -102,12 +104,18 @@ The following driver-specific commands are defined:
 
 With respect to security, there are basically three generations of Venstar ColorTouch thermostats: those that support no security whatsoever (very outdated firmware), those that support HTTP Basic Authentication and HTTPS (not the latest firmware, but improved), and those that support HTTP Digest Authentication and HTTPS (not perfect, but better than Basic). Users concerned with vulnerability of their IoT devices will want to upgrade their thermostats to the latest firmware and use HTTP Digest Authentication.
 
+At the thermostat:
+
 1. In the thermostat's Wi-Fi menu, set the API Protocol to HTTPS; some versions of firmware will require you to (temporarily) disable the local API to change these settings.
 1. Set the HTTP Authentication username and password.
+1. Re-enable the local API if you had to turn it off to modify the above settings.
 1. Power-cycle the thermostat or restart it using the Installer menu.
-1. Open the device in the Hubitat UI.
+
+In the Hubitat UI:
+
+1. Open the thermostat device.
 1. Set the *Local API Protocol* to `https` and provide the username and password you configured at the thermostat in the device configuration fields *Auth User* and *Auth Password*
-1. When you click the *Save Preferences* button, the driver will restart and requery the thermostat, so you should observe the `lastUpdate` field change (or if you miss the change, it should be seconds from the current time). You can also check the logs for any errors from the driver. Always try rebooting the thermostat if you have problems after modifying its authentication configuration. And of course, make sure to double-check your username and password configuration at both the thermostat and driver; they must agree in every respect.
+1. Click the *Save Preferences* button. The driver will restart and requery the thermostat, so you should observe the `lastUpdate` field (in *Current States* for the device) change (or if you miss the actual change, the time shown should be seconds from the current time). You can also check the logs for any errors from the driver. Always try rebooting the thermostat if you have problems after modifying its authentication configuration. And of course, make sure to double-check your username and password configuration at both the thermostat and driver; they must agree in every respect.
 
 > NOTE: Although the thermostat refers to these in its UI as "Basic Auth", they could use either Basic or Digest authentication as determined by the thermostat's firmware. The driver will use whichever the thermostat supports/offers.
 
@@ -115,9 +123,9 @@ With respect to security, there are basically three generations of Venstar Color
 
 Support questions, bug reports and enhancement requests are welcome! There are two ways to share them:
 
-1. I have a strong preference for the use of the ["Issues" section](https://github.com/toggledbits/VenstarColorTouch-Hubitat/issues) of the Github repository for reporting of (actual or suspected) bugs.
-1. I'll be happy to answer questions directed to me (@toggledbits) in posts or PMs on the [Hubitat Community Forums](https://community.hubitat.com/).
+1. I have a strong preference for the use of the ["Issues" section of the Github repository](https://github.com/toggledbits/VenstarColorTouch-Hubitat/issues) for reporting of (actual or suspected) bugs.
+1. I'm happy to answer questions directed to me (@toggledbits) in posts or PMs on the [Hubitat Community Forums](https://community.hubitat.com/).
 
 <hr>
 
-Copyright 2021 Patrick H. Rigney (toggledbits), All Rights Reserved
+Copyright 2021 Patrick H. Rigney (toggledbits), All Rights Reserved. Please see the LICENSE file for further information.
