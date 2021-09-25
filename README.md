@@ -15,6 +15,7 @@ Other features of this new version include:
 
 * Support for standard capabilities: Thermostat, TemperatureMeasurement, RelativeHumidityMeasurement, PresenceSensor;
 * Extended (driver-specific) support for humidification/dehumidification (T7900/8900);
+* Reports heating/cooling stages running on multi-stage units;
 * Control of effective state of thermostat's program schedule;
 * Control of the selection of *Home* or *Away* (e.g. vacation) settings selection;
 * HTTPS (SSL/TLS) support with optional HTTP user authentication for improved security on your LAN (HTTP Basic and Digest authentication methods supported).
@@ -68,6 +69,8 @@ If you are using HTTPS, the thermostat will allow you to configure an authentica
 
 The *Polling Interval* determines how often the driver queries the thermostat for new data. The Venstar local API does not "notify" the driver/hub of changes, so the driver must poll. This creates a delay in response to manual changes at the thermostat up to the length of the polling interval. The protocol is lightweight, so a polling interval of 60 seconds (the default) should present no significant load to either the hub or thermostat. Intervals of less than 15 seconds are not recommended, however.
 
+Some commands, like mode changes, are not honored by the thermostat when its programmed schedule is in effect (running). When *Auto Program Stop* is on, the thermostat's running program will be stopped if a command is attempted that would otherwise be ignored. If you turn this setting off, you will need to stop the running program yourself (see the `setProgram` and `programStop` commands) before issuing mode changes, to ensure that they will be honored by the thermostat.
+
 ## Operation
 
 The driver provides the following standard Hubitat capabilities:
@@ -84,10 +87,11 @@ The following driver-specific attributes are defined:
 
 * `name` &mdash; [string] the name provided by the thermostat; this is informational only and is not otherwise used by the driver. It may assist you during setup in differentiating one of many thermostats in your home.
 * `online` &mdash; [boolean] the current communications state of the thermostat; if the driver cannot communicate with the thermostat, this attribute will be *false*.
-* `program` &mdash; [enum `running`, `stopped`, `unknown`] state of the thermostat's programmed schedule.
-* `schedulePeriod` &mdash; [enum `morning`, `day`, `evening`, `night`, `n/a`, `unknown`] the current effective period of the thermostat's programmed schedule; will be `n/a` if the program is stopped.
+* `activeStages` &mdash; [number] when heating or cooling with a multi-stage unit, this reflects the number of heating or cooling stages running as reported by the thermostat.
 * `thermostatFanOperatingState` &mdash; [enum `off`, `on`] operating state of the fan/blower.
 * `humdificationSetpoint` and `dehumidificationSetpoint` &mdash; [number] for the T7900/8900 models that support humidity, these are the setpoints for humidification and dehumdification, respectively. The availability of these values may be further conditioned by the configuration of the thermostat.
+* `program` &mdash; [enum `running`, `stopped`, `unknown`] state of the thermostat's programmed schedule.
+* `schedulePeriod` &mdash; [enum `morning`, `day`, `evening`, `night`, `n/a`, `unknown`] the current effective period of the thermostat's programmed schedule; will be `n/a` if the program is stopped.
 * `override` &mdash; [off/on/unknown] used on commercial models only to indicate a forced temporary change in occupancy status.
 * `lastupdate` &mdash; [date] date of when the last successful update from the thermostat was received.
 
@@ -99,6 +103,17 @@ The following driver-specific commands are defined:
 * `setProgram` &mdash; sets the thermostat's program state; the single parameter may be `run` to make the thermostat's programmed schedule effective, or `stop` to stop the programmed schedule (indefinitely).
 * `programRun` and `programStop` &mdash; these are parameter-less aliases for `setProgram "run"` and `setProgram "stop"`, respectively.
 * `setPollingInterval` &mdash; take a single (integer >= 0) parameter to *temporarily* override the polling interval of the thermostat; units are seconds. Setting 0 disables polling. The polling interval returns to the configured state when the hub is rebooted.
+
+## Other Details
+
+Here are some other things/behaviors you need to know about:
+
+* If the fan is running when the thermostat is idle (not heating or cooling), the `thermostatOperatingState` will be reported as `fan only` (in addition to the `thermostatFanOperatingState` showing `on`).
+* While the thermostat does have a "circulate" mode in which the fan is run for a configured number of minutes per hour, this is not specifically a separate mode for the fan, it just happens when the fan is in "auto" mode. Therefore, the `fanCirculate` command is the same as `fanAuto`.
+* When setting the heating and cooling setpoints, there is a "deadband" enforced between the two. This is configurable at the thermostat (referred to as the "Setpoint Delta"), and the driver uses this value as well to enforce the separation between the setpoints. For example, if you try to set the cooling setpoint too close to, or below, the heating setpoint, the heating setpoint is reduced to maintain the deadband. The extrema (min/max allowed values) of the setpoints are also considered and enforced.
+* The thermostat has no deadband for the humidification and dehumidication setpoints currently, so no attempt is made to enforce their separation. Caveat emptor.
+* I have not, as yet, seen any identifiable way on the thermostat or in the API to know when humidification or dehumidification is running, so there is no state for these. Perhaps Venstar will add these to a future firmware and API.
+* If your thermostat does not support heating or cooling, that may be reflected in `supportedThermostatModes`, but it is not enforced by the driver.
 
 ## Improving Security -- Basic Auth and HTTPS ##
 
@@ -113,8 +128,8 @@ At the thermostat:
 
 In the Hubitat UI:
 
-1. Open the thermostat device.
-1. Set the *Local API Protocol* to `https` and provide the username and password you configured at the thermostat in the device configuration fields *Auth User* and *Auth Password*
+1. Open the thermostat device (click its name in the *Devices* page).
+1. In the device's *Preferences* section, set the *Local API Protocol* to `https` and provide the username and password you configured at the thermostat in the device configuration fields *Auth Username* and *Auth Password*
 1. Click the *Save Preferences* button. The driver will restart and requery the thermostat, so you should observe the `lastUpdate` field (in *Current States* for the device) change (or if you miss the actual change, the time shown should be seconds from the current time). You can also check the logs for any errors from the driver. Always try rebooting the thermostat if you have problems after modifying its authentication configuration. And of course, make sure to double-check your username and password configuration at both the thermostat and driver; they must agree in every respect.
 
 > NOTE: Although the thermostat refers to these in its UI as "Basic Auth", they could use either Basic or Digest authentication as determined by the thermostat's firmware. The driver will use whichever the thermostat supports/offers.

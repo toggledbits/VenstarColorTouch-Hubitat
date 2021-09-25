@@ -3,43 +3,29 @@
  *
  *  (C) 2021 Patrick H. Rigney (toggledbits), All Rights Reserved
  *
- *  Permission is hereby granted, free of charge, to any person obtaining a
- *  copy of this software and associated documentation files (the “Software”),
- *  to deal in the Software without restriction, including without limitation
- *  the rights to use, copy, modify, merge, publish, distribute, sublicense,
- *  and/or sell copies of the Software, and to permit persons to whom the
- *  Software is furnished to do so, subject to the following conditions:
+ *  Licensed under the MIT License.
+ *  https://github.com/toggledbits/VenstarColorTouch-Hubitat/blob/main/LICENSE
  *
- *  The above copyright notice and this permission notice shall be included in
- *  all copies or substantial portions of the Software.
+ *  Project repo: https://github.com/toggledbits/VenstarColorTouch-Hubitat
  *
- *  THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- *  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- *  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- *  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- *  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- *  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
- *  IN THE SOFTWARE.
- *
- *  Note: this is my first project in Groovy. If I've done some things "the long
- *  way" or "the wrong way," I'd appreciate a tip, but don't judge me. :o)
- *
- *  Humidity is supported (with humidification and dehumidification setpoints)
- *  for thermostats that have it (e.g. T7900). Currently, there is no deadband
- *  enforced between the settings, so the thermostat will decide what to do with
- *  whatever values you send it.
- *
- *  TO-DO: /query/sensors, /query/runtimes
+ *  TO-DO: Query sensors and maybe create child devices; query runtimes.
  *
  *  Revision History
  *  Stamp By           Description
  *  ----- ------------ ---------------------------------------------------------
+ *  21268 toggledbits  Support for Digest username/password authentication
+ *                     (requires HTTPS on thermostat).
  *  21265 toggledbits  Rebirth.
- *
+ *  ----------------------------------------------------------------------------
  */
 
 metadata {
-    definition (name: "Venstar ColorTouch Thermostat", namespace: "toggledbits.com", author: "Patrick Rigney", filename: "toggledbits-venstar-colortouch") {
+    definition (name: "Venstar ColorTouch Thermostat",
+        namespace: "toggledbits.com",
+        author: "Patrick Rigney",
+        filename: "toggledbits-venstar-colortouch",
+        importUri: "https://raw.githubusercontent.com/toggledbits/VenstarColorTouch-Hubitat/main/drivers/VenstarColorTouch.groovy") {
+
         capability "Refresh"
         capability "Thermostat"
         capability "Sensor"
@@ -50,8 +36,9 @@ metadata {
 
         attribute "name", "string"
         attribute "online", "boolean"
+        attribute "activeStages", "number"
         attribute "override", "enum", [ "off", "on", "unknown" ]
-        attribute "schedule", "enum", [ "off", "on", "unknown" ]
+        attribute "program", "enum", [ "running", "stopped", "unknown" ]
         attribute "schedulePeriod", "enum", [ "morning", "day", "evening", "night", "n/a", "unknown" ]
         attribute "thermostatFanOperatingState", "enum", [ "off", "on" ]
         attribute "humidificationSetpoint", "number"
@@ -71,6 +58,12 @@ metadata {
     preferences {
         section {
             input (
+                type: "string",
+                name: "thermostatIp",
+                title: "Thermostat IP Address",
+                required: true
+            )
+            input (
                 type: "enum",
                 name: "requestProto",
                 title: "Local API Protocol",
@@ -80,37 +73,37 @@ metadata {
             )
             input (
                 type: "string",
-                name: "thermostatIp",
-                title: "Thermostat IP Address",
-                required: true
-            )
-            input (
-                type: "string",
                 name: "authUser",
-                title: "Basic Auth User",
+                title: "Auth Username",
                 required: false
             )
             input (
                 type: "string",
                 name: "authPass",
-                title: "Basic Auth Password",
+                title: "Auth Password",
                 required: false
             )
             input (
                 type: "number",
                 name: "pollInterval",
                 title: "Polling Interval",
-                description: "Interval, in seconds, between queries to the thermostate for update (0=no poll/disable)",
-                range: "-1..86400",
-                required: false,
+                description: "Interval, in seconds, between queries to the thermostat for update (0=no poll/disable)",
+                range: "0..86400",
+                required: true,
                 defaultValue: 60
+            )
+            input (
+                type: "bool",
+                name: "autoProgramStop",
+                title: "Auto Program Stop",
+                description: "Some commands (e.g. mode changes) will not be honored when the programmed schedule is running; turning this on (default) stops the program before executing these commands",
+                defaultValue: true
             )
             input (
                 type: "bool",
                 name: "enableDebugLogging",
                 title: "Enable debug logging",
-                required: true,
-                defaultValue: true
+                defaultValue: false
             )
         }
     }
@@ -139,19 +132,8 @@ def installed() {
 def initialize() {
     D( "initialize()" )
     unschedule()
-    state.version = 21265
     state.failCount = 0
     state.lastpoll = 0
-    updated()
-}
-
-def reinitialize() {
-    D("reinitialize()")
-    initialize()
-}
-
-def configure() {
-    D("configure()")
     updated()
 }
 
@@ -163,8 +145,8 @@ def updated() {
     state.pollInterval = pollInterval
     state.lastpoll = 0
 
-    _request( [ uri: "${requestProto}://${thermostatIp}/", contentType: "application/json", timeout: 15 ], { r->handleBasicResponse(r) } )
-    
+    sendCommand( "", null, { r->handleBasicResponse(r) } )
+
     updateChanged( "supportedThermostatModes",
                   coalesce( state.availablemodes ?: 0, { val->[
                       [ "off","heat","cool","auto" ], /* 0 */
@@ -180,8 +162,7 @@ def updated() {
 def refresh() {
     D( "refresh()" )
 
-	state.driver_version = 21267
-    state.driver_name = "Venstar ColorTouch Thermostat for Hubitat; https://"
+    state.driver_version = 21268
 
     if ( "" != thermostatIp ) {
         /* Schedule next query immediately */
@@ -194,38 +175,9 @@ def refresh() {
             contentType: "application/json",
             timeout: 10
         ]
-        _request( req, { r->httpGetCallback(r) } )
+        sendCommand( "query/info", null, { r->queryInfoCallback(r) } )
     }
 }
-
-/*
-{
-    "name": "Thermostat",
-    "mode": 1,
-    "state": 0,
-    "fan": 0,
-    "fanstate": 0,
-    "tempunits": 0,
-    "schedulepart": 0,
-    "away": 0,
-    "holiday": 0,
-    "override": 0,
-    "overridetime": 0,
-    "forceunocc": 0,
-    "spacetemp": 71,
-    "heattemp": 63,
-    "cooltemp": 66,
-    "cooltempmin": 65,
-    "cooltempmax": 99,
-    "heattempmin": 35,
-    "heattempmax": 80,
-    "setpointdelta": 2,
-    "hum": 43,
-    "hum_setpoint": 45,
-    "dehum_setpoint": 60,
-    "availablemodes": 0
-}
-*/
 
 private def coalesce( v, cl, df=null ) {
     if ( v != null ) {
@@ -252,25 +204,25 @@ private def updateChanged( key, val, desctext=null, unit=null ) {
 }
 
 private def handleBasicResponse( response ) {
-	D("handleBasicResponse(${response.class})")
-    D("response status ${response.getStatus()}")
-	if ( 200 == response.getStatus() ) {
-		def data = response.getData()
+    D("handleBasicResponse(${response.class}) status ${response.getStatus()} ${response.getStatusLine()}")
+    if ( 200 == response.getStatus() ) {
+        def data = response.getData()
+        log.info "${device.displayName} successful \"hello\" query to thermostat."
         D("data is ${data}")
-		state.api_ver = data.api_ver
-		state.type = data.type
-		state.model = data.model
-		state.firmware = data.firmware
-	}
+        state.api_ver = data.api_ver
+        state.type = data.type
+        state.model = data.model
+        state.firmware = data.firmware
+    }
 }
 
-private def httpGetCallback(response) {
-    D("httpGetcallback(${response.class})")
+private def queryInfoCallback(response) {
+    D("httpGetcallback(${response})")
     if (response == null) {
         return
     }
 
-    // D("httpGetCallback(response) status ${response.getStatus()} headers ${response.getHeaders()}")
+    // D("queryInfoCallback(response) status ${response.getStatus()} headers ${response.getHeaders()}")
 
     state.lastpoll = now()
 
@@ -293,9 +245,9 @@ private def httpGetCallback(response) {
         state.cooltempmin = data.cooltempmin
         state.cooltempmax = data.cooltempmax
         state.setpointdelta = data.setpointdelta
-        state.hum = data.hum
         state.hum_setpoint = data.hum_setpoint
         state.dehum_setpoint = data.dehum_setpoint
+        state.schedule = data.schedule
         state.lastupdate = new Date()
         state.lastdata = data
 
@@ -315,10 +267,12 @@ private def httpGetCallback(response) {
         t = [ 'auto', 'on' ][ data.fan ]
         updateChanged( "thermostatFanMode", t, "Thermostat fan mode is now ${t}" )
         if ( data.fanstate != 0 ) {
-            updateChanged( "thermostatFanOperatingState", 'on', "Fan is now RUNNING" )
+            updateChanged( "thermostatFanOperatingState", 'on', "Fan is now running" )
         } else {
-            updateChanged( "thermostatFanOperatingState", 'off', "Fan is now STOPPED" )
+            updateChanged( "thermostatFanOperatingState", 'off', "Fan is now stopped" )
         }
+
+        updateChanged( "activeStages", data.activestage, "Number of active stages is now ${data.activestage}" )
 
         /* Convert thermostat's temperature units to hub's units and store */
         if ( scale == "F" && data.tempunits == 1 ) {
@@ -359,14 +313,14 @@ private def httpGetCallback(response) {
         t = coalesce( data.away, { val->['present','not present'][val] }, 'unknown' )
         updateChanged( "presence", t, "Thermostat now in ${t == 'unknown' ? t : ['HOME','AWAY'][data.away]} mode (presence)" );
 
-		if ( state.type != 'residential' ) {
-			t = coalesce( data.override, { val->['off','on'][val] }, 'unknown' )
-			updateChanged( "override", t, "Override now ${t}" );
-		}
+        if ( state.type != 'residential' ) {
+            t = coalesce( data.override, { val->['off','on'][val] }, 'unknown' )
+            updateChanged( "override", t, "Override now ${t}" );
+        }
 
         sendEvent( name: "lastUpdate", value: state.lastupdate )
     } else {
-        E( "failed ${requestProto}://${thermostatIp}: ${response.getStatus()}, ${response.getErrorMessage()}}" )
+        E( "info query failed: ${response.getStatus()}, ${response.getStatusLine()}}" )
         if ( ++state.failCount >= 3 ) {
             updateChanged( "online", false, "Thermostat is now OFF-LINE" )
         }
@@ -388,12 +342,12 @@ private def digestAuth( path, authReq, method="GET" ) {
     def H = { s->java.security.MessageDigest.getInstance(algMap[respalg]).digest(s.getBytes("UTF-8")).encodeHex().toString() }
     def HA1 = H("${authUser.trim()}:${authReq.realm}:${authPass}")
     def HA2 = H("${method.toUpperCase()}:${path}")
-	def cnonce = java.util.UUID.randomUUID().toString().replaceAll('-', '').substring(0, 8)
+    def cnonce = java.util.UUID.randomUUID().toString().replaceAll('-', '').substring(0, 8)
     /* Reset NC per nonce. In a perfect world, we'd store the original www-authenticate response values and just build a new
      * header for each subsequent request, until we get a 401 from the server, when we toss it and start over with the new
      * data the server provides and that response. That would eliminate the double-querying that is going on now for every
      * request. But, I haven't figure out how HE does persistent storage for that kind of thing that isn't in the 'state'
-     * structure, which is kind of public, so not a great choice for storage of this data. 
+     * structure, which is kind of public, so not a great choice for storage of this data.
      */
     if ( state.nonce == authReq.nonce ) {
         state.nc = state.nc + 1
@@ -412,10 +366,13 @@ private def _request( rp, callback ) {
     def tries = 0
     while ( tries++ < 3 ) {
         try {
-            D("_request() sending request")
+            if ( rp.headers?.Authorization == null ) {
+                state.authmethod = 'none'
+            }
             if ( "https" == requestProto ) {
                 rp.ignoreSSLIssues = true
             }
+            D("_request() sending request ${rp}")
             httpGet( rp ) { resp->callback.call( resp ) }
             return
         } catch ( groovyx.net.http.HttpResponseException e ) {
@@ -434,8 +391,10 @@ private def _request( rp, callback ) {
                 if ( authstring.startsWith( 'Digest ' ) ) {
                     def authmap = authstring.replaceAll("Digest ", "").replaceAll(", ", ",").findAll(/([^,=]+)=([^,]+)/) { full, name, value -> [name, value.replaceAll("\"", "")] }.collectEntries( { it })
                     ah = digestAuth( new java.net.URI( rp.uri ).getPath(), authmap );
+                    state.authmethod = 'digest'
                 } else {
                     ah = basicAuth();
+                    state.authmethod = 'basic'
                 }
                 if ( rp.headers == null ) {
                     rp.headers = [ 'Authorization': ah ]
@@ -452,53 +411,101 @@ private def _request( rp, callback ) {
     D("_request bailing out")
 }
 
-private def postCallback( resp ) {
+private def defaultCommandCallback( resp ) {
     // def result = resp.data
-    D("command response ${resp.getStatus()}: ${resp.getData()}")
+    if ( resp.getStatus() != 200 ) {
+        E("thermostat response ${resp.getStatus()} ${resp.getStatusLine()}")
+    } else {
+        D("thermostat response ${resp.getStatus()} data=${resp.getData()}")
+    }
+    /* Unconditionally schedule refresh */
     unschedule();
     runInMillis( 2000, refresh )
 }
 
-private def sendCommand( command, reqparams ) {
-    D("sendCommand(${command},${reqparams.class} ${reqparams})")
+private def sendCommand( command, reqparams, callback=null ) {
+    D("sendCommand(${command}, ${reqparams})")
+    def uri = "${requestProto}://${thermostatIp}/${command}?"
+    if ( reqparams instanceof java.util.Map ) {
+        D("sendCommand handling ${command} reqparams as Map")
+        reqparams.each( { key, val -> uri += "${key}=${val}&" } );
+    } else if ( reqparams instanceof java.util.List ) {
+        D("sendCommand handling ${command} reqparams as List")
+        def li = reqparams.listIterator();
+        while ( li.hasNext() ) {
+            def el = li.next()
+            uri += "${el.key}=${el.value}&"
+        }
+    } else if ( reqparams != null ) {
+        E("bug, can't handle reqparams=${reqparams.class}")
+    }
+    D("sending request to ${uri.toString()}")
     def params = [
-        uri: "${requestProto}://${thermostatIp}/${command}",
+        uri: uri,
         contentType: "application/json",
-        // requestContentType: "application/x-www-form-urlencoded",
-        query: reqparams,
+        requestContentType: "application/x-www-form-urlencoded",
         timeout: 15
     ]
-    D("sending request to ${params.uri}?${reqparams}")
-    _request( params, { r->postCallback(r) } )
+    _request( params, callback ?: { r->defaultCommandCallback(r) } )
 }
 
 private def control() {
-    /** mode=%s&heattemp=%.1f&cooltemp=%.1f
-     *  mode=0-3 for off, heat, cool, auto
-     *  units in temp units of thermostat (ref state.tempunits)
-     */
-    sendCommand( "control", [ mode: state.mode, heattemp: state.heattemp, cooltemp: state.cooltemp ] )
+    /* Mode and setpoints have to be sent together, in specific order (so use array/list) */
+    sendCommand( "control", [
+        [ key: 'mode', value: state.mode ],
+        [ key: 'heattemp', value: state.heattemp ],
+        [ key: 'cooltemp', value: state.cooltemp ]
+    ] )
 }
 
 private def set_humidity_setpoints() {
+    /* Humidity setpoints must be sent together, in order, like control() */
+
     def params = [ hum_setpoint: state.hum_setpoint, dehum_setpoint: state.dehum_setpoint ]
-    sendCommand( 'settings', params )
+    sendCommand( "settings", [
+        [ key: 'hum_setpoint', value: state.hum_setpoint ],
+        [ key: 'dehum_setpoint', value: state.dehum_setpoint ]
+    ] )
+}
+
+def checkProgram() {
+    if ( state.schedule == 1 ) {
+        if ( autoProgramStop ) {
+            programStop()
+            return true
+        } else {
+            return false
+        }
+    }
+    return true
 }
 
 def auto() {
-    state.mode = 3
-    control()
+    if ( checkProgram() ) {
+        state.mode = 3
+        control()
+    } else {
+        E( "mode changes are ignored when program is running" )
+    }
 }
 
 def cool() {
-    state.mode = 2
-    control()
+    if ( checkProgram() ) {
+        state.mode = 2
+        control()
+    } else {
+        E( "mode changes are ignored when program is running" )
+    }
 }
 
 def emergencyHeat() {
-    W("mode 'emergency heat' is not supported; setting mode to HEAT")
-    state.mode = 1
-    control()
+    if ( checkProgram() ) {
+        W("mode 'emergency heat' is not supported; setting mode to HEAT")
+        state.mode = 1
+        control()
+    } else {
+        E( "mode changes are ignored when program is running" )
+    }
 }
 
 def fanAuto() {
@@ -515,13 +522,21 @@ def fanOn() {
 }
 
 def heat() {
-    state.mode = 1
-    control()
+    if ( checkProgram() ) {
+        state.mode = 1
+        control()
+    } else {
+        E( "mode changes are ignored when program is running" )
+    }
 }
 
 def off() {
-    state.mode = 0
-    control()
+    if ( checkProgram() ) {
+        state.mode = 0
+        control()
+    } else {
+        E( "mode changes are ignored when program is running" )
+    }
 }
 
 def setCoolingSetpoint( temperature ) {
