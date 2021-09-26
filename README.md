@@ -92,15 +92,15 @@ The following driver-specific attributes are defined:
 * `humdificationSetpoint` and `dehumidificationSetpoint` &mdash; [number] for the T7900/8900 models that support humidity, these are the setpoints for humidification and dehumdification, respectively. The availability of these values may be further conditioned by the configuration of the thermostat.
 * `program` &mdash; [enum `running`, `stopped`, `unknown`] state of the thermostat's programmed schedule.
 * `schedulePeriod` &mdash; [enum `morning`, `day`, `evening`, `night`, `n/a`, `unknown`] the current effective period of the thermostat's programmed schedule; will be `n/a` if the program is stopped.
-* `override` &mdash; [off/on/unknown] used on commercial models only to indicate a forced temporary change in occupancy status.
-* `lastupdate` &mdash; [date] date of when the last successful update from the thermostat was received.
+* `override` &mdash; [enum `off`, `on`, `unknown`] used on commercial models only to indicate a forced temporary change in occupancy status.
+* `lastupdate` &mdash; [date] date/time of the last successful update from the thermostat.
 
 The following driver-specific commands are defined:
 
-* `home` &mdash; changes the thermostat's Home/Away program mode to "home".
-* `away` &mdash; changes the thermostat's Home/Away program mode to "away".
-* `setHumidicationSetpoint` and `setDehumidificationSetpoint` &mdash; for models T7900/8900 that are configured for (de)humidification control, this commands take a single (integer 0-99) parameter to modify the setpoint.
-* `setProgram` &mdash; sets the thermostat's program state; the single parameter may be `run` to make the thermostat's programmed schedule effective, or `stop` to stop the programmed schedule (indefinitely).
+* `home` &mdash; changes the thermostat's Home/Away program mode to "Home".
+* `away` &mdash; changes the thermostat's Home/Away program mode to "Away".
+* `setHumidicationSetpoint` and `setDehumidificationSetpoint` &mdash; for models T7900/8900 that are configured for (de)humidification control, these commands take a single (integer 0-99) parameter to modify the respective setpoint.
+* `setProgram` &mdash; sets the thermostat's program state; the single parameter may be `run` to make the thermostat's programmed schedule effective, or `stop` to stop the programmed schedule (indefinitely). Note that when the program is running, the thermostat may ignore mode change commands, and setpoint changes are temporary.
 * `programRun` and `programStop` &mdash; these are parameter-less aliases for `setProgram "run"` and `setProgram "stop"`, respectively.
 * `setPollingInterval` &mdash; take a single (integer >= 0) parameter to *temporarily* override the polling interval of the thermostat; units are seconds. Setting 0 disables polling. The polling interval returns to the configured state when the hub is rebooted.
 
@@ -116,9 +116,9 @@ Here are some other things/behaviors you need to know about:
 * I have not, as yet, seen any identifiable way on the thermostat or in the API to know when humidification or dehumidification is running, so there is no state for these. Perhaps Venstar will add these to a future firmware and API.
 * If your thermostat does not support heating or cooling, that may be reflected in `supportedThermostatModes`, but it is not enforced by the driver.
 
-## Improving Security -- Basic Auth and HTTPS ##
+## Improving Security -- HTTPS and User Authentication ##
 
-With respect to security, there are basically three generations of Venstar ColorTouch thermostat firmware: those that support no security whatsoever (very outdated firmware), those that support HTTP Basic Authentication and HTTPS (not the latest firmware, but improved), and those that support HTTP Digest Authentication and HTTPS (not perfect, but much better than Basic). Users concerned with vulnerability of their IoT devices should use HTTPS with username/password authentication. Ideally, users should upgrade their thermostats to the latest firmware that does HTTP Digest authentication.
+With respect to security, there are basically three generations of Venstar ColorTouch thermostat firmware: those that support no security whatsoever (very outdated firmware), those that support HTTP Basic Authentication and HTTPS (not the latest firmware, but improved), and those that support HTTP Digest Authentication and HTTPS (not perfect, but much better than Basic). Users concerned with vulnerability of their IoT devices should use HTTPS with username/password authentication. Ideally, those users should upgrade their thermostats to the latest firmware that does HTTP Digest authentication (mine currently are at 6.91 and support Digest authentication).
 
 At the thermostat:
 
