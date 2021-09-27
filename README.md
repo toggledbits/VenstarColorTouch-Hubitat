@@ -2,19 +2,14 @@
 
 <small>By [toggledbits](https://www.toggledbits.com/)</small>
 
-This driver for Hubitat Elevation works with [Venstar ColorTouch Thermostats](https://venstar.com/thermostats/colortouch/) that have Wi-Fi support and local API. It uses the local API only, and does not use the Skyport cloud to access the thermostat. The following thermostats are known to work:
-
-* T7850
-* T7900
-
-I suspect that the commercial versions of these models (the T8850 and T8900) will also work.
+This driver for Hubitat Elevation works with [Venstar ColorTouch Thermostats](https://venstar.com/thermostats/colortouch/) that have Wi-Fi support and local API. It uses the local API only, and does not use the Skyport cloud to access or control the thermostat.
 
 This is a new, completely rewritten driver offered under the very liberal MIT license. The previous maintainer "withdrew" his version of the driver &mdash; a questionable concept legally, but regardless, I'm happy to start over and license a new work under terms more favorable to the Hubitat community. For clarity, as this driver is now released to the public as Open Source under the MIT License, under U.S. law (the governing law for this author), the "performance" has been started and thus the license and your right to use this driver can never be withdrawn. Enjoy!
 
 Other features of this new version include:
 
 * Support for standard capabilities: Thermostat, TemperatureMeasurement, RelativeHumidityMeasurement, PresenceSensor;
-* Extended (driver-specific) support for humidification/dehumidification (T7900/8900);
+* Extended (driver-specific) support for humidification/dehumidification (T5900/7900/8900);
 * Reports heating/cooling stages running on multi-stage units;
 * Control of effective state of thermostat's program schedule;
 * Control of the selection of *Home* or *Away* (e.g. vacation) settings selection;
@@ -24,6 +19,8 @@ Future:
 
 * Child devices for additional sensors;
 * Retrieval/storage/availability of thermostat's collected runtime stats.
+
+Also note that since I only use the T7850 and T7900 in my home, these are the only thermostats I've tested, and I don't have feedback yet from the community on other units that may also work, specifically the T2000, T5800/6800, and T5900/6900. If you're a user of any of these units, please chime in!
 
 Refer to the `CHANGELOG` file for release notes.
 
