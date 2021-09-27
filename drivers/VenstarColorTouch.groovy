@@ -84,6 +84,15 @@ metadata {
                 required: false
             )
             input (
+                type: "enum",
+                name: "configUnits",
+                title: "Device Units",
+                description: "By default, temperature units are the hub's configured unit. You can override and force C or F here.",
+                options: [ "hub", "C", "F" ],
+                required: false,
+                defaultValue: "hub"
+            )
+            input (
                 type: "number",
                 name: "pollInterval",
                 title: "Polling Interval",
@@ -123,6 +132,10 @@ private def E( msg ) {
     log.error "${device.displayName}: ${msg}"
 }
 
+private def round( n, d=1 ) {
+	return Math.round( n * 10**d + 0.5 ) / 10**d
+}
+
 def installed() {
     D( "installed()" )
     state.pollInterval = 60
@@ -145,7 +158,7 @@ def updated() {
     state.pollInterval = pollInterval
     state.lastpoll = 0
 
-    sendCommand( "", null, { r->handleBasicResponse(r) } )
+    sendCommand( "", null, { r,e -> handleHelloResponse(r,e) } )
 
     updateChanged( "supportedThermostatModes",
                   coalesce( state.availablemodes ?: 0, { val->[
@@ -162,7 +175,7 @@ def updated() {
 def refresh() {
     D( "refresh()" )
 
-    state.driver_version = 21268
+    state.driver_version = 21270
 
     if ( "" != thermostatIp ) {
         /* Schedule next query immediately */
@@ -175,7 +188,7 @@ def refresh() {
             contentType: "application/json",
             timeout: 10
         ]
-        sendCommand( "query/info", null, { r->queryInfoCallback(r) } )
+        sendCommand( "query/info", null, { r,e -> queryInfoCallback(r,e) } )
     }
 }
 
@@ -203,9 +216,9 @@ private def updateChanged( key, val, desctext=null, unit=null ) {
     return false
 }
 
-private def handleBasicResponse( response ) {
-    D("handleBasicResponse(${response.class}) status ${response.getStatus()} ${response.getStatusLine()}")
-    if ( 200 == response.getStatus() ) {
+private def handleHelloResponse( response, err ) {
+    D("handleHelloResponse(${response}, ${err})")
+    if ( err == null && response.getStatus() == 200 ) {
         def data = response.getData()
         log.info "${device.displayName} successful \"hello\" query to thermostat."
         D("data is ${data}")
@@ -213,21 +226,32 @@ private def handleBasicResponse( response ) {
         state.type = data.type
         state.model = data.model
         state.firmware = data.firmware
+        return
+    }
+
+    updateChanged( "online", false, "Thermostat is now OFF-LINE" )
+
+    if ( err ) {
+        E("hello failed: ${e}")
+    } else {
+        E("hello failed: ${response.getStatus()} ${response.getStatusLine()}")
     }
 }
 
-private def queryInfoCallback(response) {
-    D("httpGetcallback(${response})")
-    if (response == null) {
-        return
-    }
+private def queryInfoCallback(response, err) {
+    D("httpGetcallback(${response}, ${err})")
 
     // D("queryInfoCallback(response) status ${response.getStatus()} headers ${response.getHeaders()}")
 
     state.lastpoll = now()
 
-    if ( 200 == response.getStatus() ) {
-        def scale = getTemperatureScale()
+    if ( err != null ) {
+        E("can't query thermostat info: ${e}")
+        if ( ++state.failCount >= 3 ) {
+            updateChanged( "online", false, "Thermostat is now OFF-LINE" )
+        }
+    } else if ( 200 == response.getStatus() ) {
+        def scale = configUnits == "hub" ? getTemperatureScale() : configUnits
         def data = response.getData()      /* or maybe parseJson( response.data ) ? */
 
         // D("state is ${state}")
@@ -236,7 +260,19 @@ private def queryInfoCallback(response) {
         state.failCount = 0
         state.mode = data.mode
         state.fan = data.fan
-        state.tempunits = data.tempunits
+        if ( data.tempunits != null ) {
+            state.tempunits = data.tempunits
+        } else if ( "T2" == state.model ) {
+            D("forcing degrees Celsius for ${state.model}")
+            state.tempunits = 1
+        } else if ( data.heattempmax != null ) {
+            state.tempunits = data.heattempmax >= 40 ? 0 : 1
+            D("missing tempunits; guessing ${state.tempunits?"C":"F"} from heattempmax=${data.heattempmax}")
+        } else {
+            state.tempunits = null
+            scale = null
+            W("can't ascertain temperature units; no conversion applied")
+        }
         state.spacetemp = data.spacetemp
         state.heattemp = data.heattemp
         state.heattempmin = data.heattempmin
@@ -277,13 +313,13 @@ private def queryInfoCallback(response) {
         /* Convert thermostat's temperature units to hub's units and store */
         if ( scale == "F" && data.tempunits == 1 ) {
             /* Thermostat is C and Hubitat is F */
-            data.spacetemp = coalesce( data.spacetemp, { temp->celsiusToFahrenheit( temp ) } )
-            data.cooltemp = coalesce( data.cooltemp, { temp->celsiusToFahrenheit( temp ) } )
-            data.heattemp = coalesce( data.heattemp, { temp->celsiusToFahrenheit( temp ) } )
+            data.spacetemp = coalesce( data.spacetemp, { temp->round( celsiusToFahrenheit( temp ) ) } )
+            data.cooltemp = coalesce( data.cooltemp, { temp->round( celsiusToFahrenheit( temp ) ) } )
+            data.heattemp = coalesce( data.heattemp, { temp->round( celsiusToFahrenheit( temp ) ) } )
         } else if ( scale == "C" && data.tempunits == 0 ) {
-            data.spacetemp = coalesce( data.spacetemp, { temp->fahrenheitToCelsius( temp ) } )
-            data.cooltemp = coalesce( data.cooltemp, { temp->fahrenheitToCelsius( temp ) } )
-            data.heattemp = coalesce( data.heattemp, { temp->fahrenheitToCelsius( temp ) } )
+            data.spacetemp = coalesce( data.spacetemp, { temp->round( fahrenheitToCelsius( temp ) ) } )
+            data.cooltemp = coalesce( data.cooltemp, { temp->round( fahrenheitToCelsius( temp ) ) } )
+            data.heattemp = coalesce( data.heattemp, { temp->round( fahrenheitToCelsius( temp ) ) } )
         }
         updateChanged( "temperature", data.spacetemp, "Ambient temperature is now ${data.spacetemp}", scale );
         updateChanged( "coolingSetpoint", data.cooltemp, "Cooling setpoint is now ${data.cooltemp}", scale );
@@ -373,16 +409,16 @@ private def _request( rp, callback ) {
                 rp.ignoreSSLIssues = true
             }
             D("_request() sending request ${rp}")
-            httpGet( rp ) { resp->callback.call( resp ) }
-            return
+            httpGet( rp ) { resp->callback.call( resp, null ) }
+            break
         } catch ( groovyx.net.http.HttpResponseException e ) {
-            D("exception caught ${e.class} ${e}")
+            D("response exception caught ${e.class} ${e}")
             if ( e.getResponse().getStatus() == 401 && "" != authUser ) {
                 if ( rp.headers?.Authorization != null ) {
                     D("Attempted auth failed with ${rp.headers.Authorization}")
                     state.nc = 0
-                    callback.call( e.getResponse() );
-                    return;
+                    callback.call( e.getResponse(), null );
+                    break;
                 }
                 /* Do auth if we can */
                 def authstring = e.getResponse().headers.'www-authenticate'
@@ -404,23 +440,29 @@ private def _request( rp, callback ) {
                 D("_request resubmitting with ${rp.headers}")
                 madeWithAuth = true;
             } else {
-                callback.call( e.getResponse() );
+                callback.call( e.getResponse(), null );
+                break;
             }
+        } catch( e ) {
+            E( "${e.class} ${e}" )
+            callback.call( null, e )
+            break
         }
     }
-    D("_request bailing out")
 }
 
-private def defaultCommandCallback( resp ) {
+private def defaultCommandCallback( resp, err ) {
     // def result = resp.data
-    if ( resp.getStatus() != 200 ) {
+    /* Unconditionally schedule refresh */
+    unschedule();
+    runInMillis( 2000, refresh )
+    if ( err ) {
+        E("command failed: ${e}")
+    } else if ( resp.getStatus() != 200 ) {
         E("thermostat response ${resp.getStatus()} ${resp.getStatusLine()}")
     } else {
         D("thermostat response ${resp.getStatus()} data=${resp.getData()}")
     }
-    /* Unconditionally schedule refresh */
-    unschedule();
-    runInMillis( 2000, refresh )
 }
 
 private def sendCommand( command, reqparams, callback=null ) {
@@ -446,7 +488,7 @@ private def sendCommand( command, reqparams, callback=null ) {
         requestContentType: "application/x-www-form-urlencoded",
         timeout: 15
     ]
-    _request( params, callback ?: { r->defaultCommandCallback(r) } )
+    _request( params, callback ?: { r,e -> defaultCommandCallback(r,e) } )
 }
 
 private def control() {
@@ -541,12 +583,12 @@ def off() {
 
 def setCoolingSetpoint( temperature ) {
     def ttemp = temperature
-    def scale = getTemperatureScale()
+    def scale = configUnits == "hub" ? getTemperatureScale() : configUnits
     D("setCoolingSetpoint(${temperature}): scale=${scale}, tempunits=${state.tempunits}")
     if ( scale == "C" && state.tempunits == 0 ) {
-        ttemp = celsiusToFahrenheit( ttemp )
+        ttemp = round( celsiusToFahrenheit( ttemp ) )
     } else if ( scale == "F" && state.tempunits == 1 ) {
-        ttemp = fahrenheitToCelsius( ttemp )
+        ttemp = round( fahrenheitToCelsius( ttemp ) )
     }
     if ( ttemp < state.cooltempmin ) {
         W( "requested cooling setpoint ${ttemp} is below minumum (${state.cooltempmin}); limiting to minimum" )
@@ -572,12 +614,12 @@ def setCoolingSetpoint( temperature ) {
 
 def setHeatingSetpoint( temperature ) {
     def ttemp = temperature
-    def scale = getTemperatureScale()
+    def scale = configUnits == "hub" ? getTemperatureScale() : configUnits
     D("setHeatingSetpoint(${temperature}): scale=${scale}, tempunits=${state.tempunits}")
     if ( scale == "C" && state.tempunits == 0 ) {
-        ttemp = celsiusToFahrenheit( ttemp )
+        ttemp = round( celsiusToFahrenheit( ttemp ) )
     } else if ( scale == "F" && state.tempunits == 1 ) {
-        ttemp = fahrenheitToCelsius( ttemp )
+        ttemp = round( fahrenheitToCelsius( ttemp ) )
     }
     if ( ttemp < state.heattempmin ) {
         W( "requested heating setpoint ${ttemp} is below minumum (${state.heattempmin}); limiting to minimum" )
