@@ -13,6 +13,7 @@
  *  Revision History
  *  Stamp By           Description
  *  ----- ------------ ---------------------------------------------------------
+ *  21270 toggledbuts  Settable temp units; T2000/5x00/6x00 support.
  *  21268 toggledbits  Support for Digest username/password authentication
  *                     (requires HTTPS on thermostat).
  *  21265 toggledbits  Rebirth.
