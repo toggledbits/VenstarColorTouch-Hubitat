@@ -13,7 +13,9 @@
  *  Revision History
  *  Stamp By           Description
  *  ----- ------------ ---------------------------------------------------------
- *  21270 toggledbuts  Settable temp units; T2000/5x00/6x00 support.
+ *  21334 toggledbits  Trim input on mode commands; the dashboard seems to be
+ *                     passing values with extra spaces.
+ *  21270 toggledbits  Settable temp units; T2000/5x00/6x00 support.
  *  21268 toggledbits  Support for Digest username/password authentication
  *                     (requires HTTPS on thermostat).
  *  21265 toggledbits  Rebirth.
@@ -134,7 +136,7 @@ private def E( msg ) {
 }
 
 private def round( n, d=1 ) {
-	return Math.round( n * 10**d + 0.5 ) / 10**d
+    return Math.round( n * 10**d + 0.5 ) / 10**d
 }
 
 def installed() {
@@ -650,6 +652,7 @@ def setSchedule( sched ) {
 
 def setThermostatFanMode( fanmode ) {
     D("setThermostatFanMode(${fanmode})")
+    fanmode = fanmode.trim();
     if ( fanmode == 'on' ) {
         state.fan = 1; /* on */
     } else if ( fanmode == 'auto' ) {
@@ -659,6 +662,7 @@ def setThermostatFanMode( fanmode ) {
 }
 
 def setThermostatMode( mode ) {
+    mode = mode.trim();
     if ( mode == 'auto' ) {
         state.mode = 3
     } else if ( mode == 'cool' ) {
@@ -722,7 +726,7 @@ def setDehumidificationSetpoint( rel ) {
 }
 
 def setProgram( action ) {
-    sendCommand( 'settings', [ schedule: action == "run" ? 1 : 0 ] )
+    sendCommand( 'settings', [ schedule: action.trim() == "run" ? 1 : 0 ] )
 }
 
 def programRun() {
