@@ -1,5 +1,9 @@
 # Changelog for Venstar ColorTouch Thermostat Hubitat Driver
 
+## 22101
+
+* Fix repeating message in log when thermostat does not report "activestage".
+
 ## 21334
 
 * Trim input strings for setThermostatMode and setThermostatFanMode; the Hubitat dashboard seems to add spaces to some values.

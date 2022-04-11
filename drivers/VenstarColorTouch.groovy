@@ -13,6 +13,8 @@
  *  Revision History
  *  Stamp By           Description
  *  ----- ------------ ---------------------------------------------------------
+ *  22101 toggledbits  Fix repeating message in log when activestage is not
+ *                     reported by thermostat.
  *  21334 toggledbits  Trim input on mode commands; the dashboard seems to be
  *                     passing values with extra spaces.
  *  21270 toggledbits  Settable temp units; T2000/5x00/6x00 support.
@@ -178,7 +180,7 @@ def updated() {
 def refresh() {
     D( "refresh()" )
 
-    state.driver_version = 21270
+    state.driver_version = 22101
 
     if ( "" != thermostatIp ) {
         /* Schedule next query immediately */
@@ -192,6 +194,8 @@ def refresh() {
             timeout: 10
         ]
         sendCommand( "query/info", null, { r,e -> queryInfoCallback(r,e) } )
+    } else {
+        updateChanged( "online", false, "Not configured" )
     }
 }
 
@@ -204,15 +208,20 @@ private def coalesce( v, cl, df=null ) {
 
 private def updateChanged( key, val, desctext=null, unit=null ) {
     def oldval = device.currentValue( key )
+    // Some odd type handling goes on inside sendEvent() apparently. Booleans are converted to strings, so passing
+    // in a boolean gets you a string back. But null is handled differently. If you set (real) null, or set the string
+    // "null", it comes back from currentValue() as real null. Asymmetrical, gotcha.
     // D("Current value of ${key} is (${oldval==null?"null":oldval.class})${oldval} new is (${val==null?"null":val.class})${val}")
-    if ( ! ( val instanceof Number || val instanceof String ) ) {
+    if ( ! ( null == val || val instanceof Number || val instanceof String ) ) {
         val = val.toString();
     }
     D("key ${key} oldval=${oldval} val=${val}")
     if ( oldval != val ) {
         sendEvent( name: key, value: val, unit: unit, linkText: device.displayName, descriptionText: desctext )
-        if ( desctext != null && "" != desctext ) {
+        if ( null != desctext && "" != desctext ) {
             log.info( "${device.displayName}: ${desctext}" );
+        } else {
+            log.info( "${device.displayName}: ${key} changed from ${oldval} to ${val}" );
         }
         return true
     }
@@ -235,7 +244,7 @@ private def handleHelloResponse( response, err ) {
     updateChanged( "online", false, "Thermostat is now OFF-LINE" )
 
     if ( err ) {
-        E("hello failed: ${e}")
+        E("hello failed: ${err}")
     } else {
         E("hello failed: ${response.getStatus()} ${response.getStatusLine()}")
     }
@@ -249,7 +258,7 @@ private def queryInfoCallback(response, err) {
     state.lastpoll = now()
 
     if ( err != null ) {
-        E("can't query thermostat info: ${e}")
+        E("can't query thermostat info: ${err}")
         if ( ++state.failCount >= 3 ) {
             updateChanged( "online", false, "Thermostat is now OFF-LINE" )
         }
@@ -311,7 +320,9 @@ private def queryInfoCallback(response, err) {
             updateChanged( "thermostatFanOperatingState", 'off', "Fan is now stopped" )
         }
 
-        updateChanged( "activeStages", data.activestage, "Number of active stages is now ${data.activestage}" )
+        if ( null != data.activestage ) {
+            updateChanged( "activeStages", data.activestage, "Number of active stages is now ${data.activestage}" )
+        }
 
         /* Convert thermostat's temperature units to hub's units and store */
         if ( scale == "F" && data.tempunits == 1 ) {
