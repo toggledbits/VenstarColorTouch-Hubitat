@@ -14,7 +14,8 @@
  *  Stamp By           Description
  *  ----- ------------ ---------------------------------------------------------
  *  22101 toggledbits  Fix repeating message in log when activestage is not
- *                     reported by thermostat.
+ *                     reported by thermostat. Fix handling of 0 poll interval.
+ *                     Refresh command still works when polling is disabled.
  *  21334 toggledbits  Trim input on mode commands; the dashboard seems to be
  *                     passing values with extra spaces.
  *  21270 toggledbits  Settable temp units; T2000/5x00/6x00 support.
@@ -143,6 +144,7 @@ private def round( n, d=1 ) {
 
 def installed() {
     D( "installed()" )
+    log.info("Venstar ColorTouch Driver by toggledbits version 22101 installed")
     state.pollInterval = 60
     initialize()
 }
@@ -185,9 +187,15 @@ def refresh() {
     if ( "" != thermostatIp ) {
         /* Schedule next query immediately */
         unschedule()
-        runIn( state.pollInterval, refresh )
-        D("refresh() armed for next poll in ${state.pollInterval} secs")
+        if ( state.pollInterval > 0 ) {
+            runIn( state.pollInterval, refresh )
+            D("refresh() armed for next poll in ${state.pollInterval} secs")
+        } else {
+            updateChanged( "online", false, "OFF-LINE (not polling)" )
+        }
 
+        // Even if polling is off, a refresh will query and refresh the device.
+        log.info( "Refreshing (querying thermostat)" )
         def req = [
             uri: "${requestProto}://${thermostatIp}/query/info",
             contentType: "application/json",
@@ -195,7 +203,7 @@ def refresh() {
         ]
         sendCommand( "query/info", null, { r,e -> queryInfoCallback(r,e) } )
     } else {
-        updateChanged( "online", false, "Not configured" )
+        updateChanged( "online", false, "OFF-LINE (not configured)" )
     }
 }
 
@@ -241,7 +249,7 @@ private def handleHelloResponse( response, err ) {
         return
     }
 
-    updateChanged( "online", false, "Thermostat is now OFF-LINE" )
+    updateChanged( "online", false, "OFF-LINE (invalid hello)" )
 
     if ( err ) {
         E("hello failed: ${err}")
@@ -260,7 +268,7 @@ private def queryInfoCallback(response, err) {
     if ( err != null ) {
         E("can't query thermostat info: ${err}")
         if ( ++state.failCount >= 3 ) {
-            updateChanged( "online", false, "Thermostat is now OFF-LINE" )
+            updateChanged( "online", false, "OFF-LINE (thermostat unreachable)" )
         }
     } else if ( 200 == response.getStatus() ) {
         def scale = configUnits == "hub" ? getTemperatureScale() : configUnits
@@ -299,7 +307,10 @@ private def queryInfoCallback(response, err) {
         state.lastupdate = new Date()
         state.lastdata = data
 
-        updateChanged( "online", true, "Thermostat is now ONLINE" )
+        if ( state.pollInterval > 0 ) {
+            updateChanged( "online", true, "Thermostat is now ONLINE" )
+        }
+
         updateChanged( "name", data.name, "Thermostat name changed to ${data.name}" )
 
         def t = ['off','heat','cool','auto'][ data.mode ]
@@ -372,7 +383,7 @@ private def queryInfoCallback(response, err) {
     } else {
         E( "info query failed: ${response.getStatus()}, ${response.getStatusLine()}}" )
         if ( ++state.failCount >= 3 ) {
-            updateChanged( "online", false, "Thermostat is now OFF-LINE" )
+            updateChanged( "online", false, "OFF-LINE (error)" )
         }
     }
 }

@@ -3,6 +3,8 @@
 ## 22101
 
 * Fix repeating message in log when thermostat does not report "activestage".
+* Correct handling for polling interval=0
+* Refresh command works even if polling is disabled (i.e. you can turn polling off but still update the device "manually").
 
 ## 21334
 
