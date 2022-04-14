@@ -13,6 +13,9 @@
  *  Revision History
  *  Stamp By           Description
  *  ----- ------------ ---------------------------------------------------------
+ *  22104 toggledbits  It appears the older T59xx/69xx thermostats report humid-
+ *                     ity oddly as compared to newer models. Try to work around
+ *                     this.
  *  22101 toggledbits  Fix repeating message in log when activestage is not
  *                     reported by thermostat. Fix handling of 0 poll interval.
  *                     Refresh command still works when polling is disabled.
@@ -71,6 +74,18 @@ metadata {
             )
             input (
                 type: "enum",
+                name: "thermostatModel",
+                title: "Thermostat Model",
+                options: [
+                    "0": "T78x0/79x0/88x0/89x0",
+                    "1": "T58x0/68x0",
+                    "2": "T59x0/69x0"
+                ],
+                required: true,
+                defaultValue: "0"
+            )
+            input (
+                type: "enum",
                 name: "requestProto",
                 title: "Local API Protocol",
                 options: [ "http", "https" ],
@@ -92,10 +107,14 @@ metadata {
             input (
                 type: "enum",
                 name: "configUnits",
-                title: "Device Units",
-                description: "By default, temperature units are the hub's configured unit. You can override and force C or F here.",
-                options: [ "hub", "C", "F" ],
-                required: false,
+                title: "Temperature Unit",
+                description: "By default, temperature units are the hub's configured unit. You can override to force C or F here.",
+                options: [
+                    "hub": "(default: hub's configured unit)",
+                    "C": "Celsius",
+                    "F": "Fahrenheit"
+                ],
+                required: true,
                 defaultValue: "hub"
             )
             input (
@@ -144,7 +163,7 @@ private def round( n, d=1 ) {
 
 def installed() {
     D( "installed()" )
-    log.info("Venstar ColorTouch Driver by toggledbits version 22101 installed")
+    log.info("Venstar ColorTouch Driver by toggledbits version 22104 installed")
     state.pollInterval = 60
     initialize()
 }
@@ -176,26 +195,31 @@ def updated() {
                   ][val] } ), "Supported operating modes have changed" )
     updateChanged( "supportedThermostatFanModes", [ "auto", "on" ], "Supported fan modes have changed" )
 
-    refresh()
+    do_refresh()
 }
 
 def refresh() {
     D( "refresh()" )
+    log.info( "Refreshing (querying thermostat)" )
+    do_refresh()
+}
 
-    state.driver_version = 22101
+def do_refresh() {
+    D( "do_refresh()" )
+
+    state.driver_version = 22104
 
     if ( "" != thermostatIp ) {
         /* Schedule next query immediately */
         unschedule()
         if ( state.pollInterval > 0 ) {
-            runIn( state.pollInterval, refresh )
-            D("refresh() armed for next poll in ${state.pollInterval} secs")
+            runIn( state.pollInterval, do_refresh )
+            D("do_refresh() armed for next poll in ${state.pollInterval} secs")
         } else {
             updateChanged( "online", false, "OFF-LINE (not polling)" )
         }
 
         // Even if polling is off, a refresh will query and refresh the device.
-        log.info( "Refreshing (querying thermostat)" )
         def req = [
             uri: "${requestProto}://${thermostatIp}/query/info",
             contentType: "application/json",
@@ -241,7 +265,7 @@ private def handleHelloResponse( response, err ) {
     if ( err == null && response.getStatus() == 200 ) {
         def data = response.getData()
         log.info "${device.displayName} successful \"hello\" query to thermostat."
-        D("data is ${data}")
+        D("thermostat's hello data is ${data}")
         state.api_ver = data.api_ver
         state.type = data.type
         state.model = data.model
@@ -359,8 +383,14 @@ private def queryInfoCallback(response, err) {
             updateChanged( "thermostatSetpoint", data.cooltemp, "Setpoint is now ${data.cooltemp}", scale );
         }
 
-        /* T7900 supports humidity */
-        if ( null != data.hum ) {
+        /* Humidity support is broken on T59x0 (fields are odd), so work around that. T7xx0/8xx0 are normal/expected. */
+        if ( thermostatModel == "2" ) {
+            /* This is based on T59x0 running firmware 4.08 2022-04-14 */
+            updateChanged( "humidity", data.hum_setpoint, "Ambient relative humidity is now ${data.hum_setpoint}", "%" );
+            updateChanged( "humidificationSetpoint", data.hum, "Humidification setpoint is now ${data.hum}", "%" );
+            updateChanged( "dehumidifcationSetpoint", data.dehum_setpoint, "Dehumidification setpoint is now ${data.dehum_setpoint}", "%" );
+        } else if ( thermostatModel != "1" && null != data.hum ) {
+            /* This is normal. */
             updateChanged( "humidity", data.hum, "Ambient relative humidity is now ${data.hum}", "%" );
             updateChanged( "humidificationSetpoint", data.hum_setpoint, "Humidification setpoint is now ${data.hum_setpoint}", "%" );
             updateChanged( "dehumidifcationSetpoint", data.dehum_setpoint, "Dehumidification setpoint is now ${data.dehum_setpoint}", "%" );
@@ -480,7 +510,7 @@ private def defaultCommandCallback( resp, err ) {
     // def result = resp.data
     /* Unconditionally schedule refresh */
     unschedule();
-    runInMillis( 2000, refresh )
+    runInMillis( 2000, do_refresh )
     if ( err ) {
         E("command failed: ${e}")
     } else if ( resp.getStatus() != 200 ) {
@@ -710,7 +740,7 @@ def setPollingInterval( num ) {
                 nextpoll = 10
             }
             D("nextpoll ${nextpoll}ms")
-            runInMillis( nextpoll as Integer, refresh )
+            runInMillis( nextpoll as Integer, do_refresh )
         }
     }
 }

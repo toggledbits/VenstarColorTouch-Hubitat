@@ -1,5 +1,9 @@
 # Changelog for Venstar ColorTouch Thermostat Hubitat Driver
 
+## 22104
+
+* The T59x0 apparently reports humidity in odd fields (not consistent with API of later 7000/8000 series). Add a preference for thermostat model and use that to help unfork this inconsistency.
+
 ## 22101
 
 * Fix repeating message in log when thermostat does not report "activestage".

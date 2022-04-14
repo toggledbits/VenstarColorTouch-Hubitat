@@ -64,7 +64,7 @@ Configuration should be pretty straight-forward. You need to supply the IP addre
 
 If you are using HTTPS, the thermostat will allow you to configure an authentication username and password. If you choose this option, you will need to supply that username and password to the driver in the fields indicated. Otherwise, leave these fields blank. See *Improving Security* below.
 
-The *Polling Interval* determines how often the driver queries the thermostat for new data. The Venstar local API does not "notify" the driver/hub of changes, so the driver must poll. This creates a delay in response to manual changes at the thermostat up to the length of the polling interval. The protocol is lightweight, so a polling interval of 60 seconds (the default) should present no significant load to either the hub or thermostat. Intervals of less than 15 seconds are not recommended, however.
+The *Polling Interval* determines how often the driver queries the thermostat for new data. The Venstar local API does not "notify" the driver/hub of changes, so the driver must poll. This creates a delay in response to manual changes at the thermostat up to the length of the polling interval. The protocol is lightweight, so a polling interval of 60 seconds (the default) should present no significant load to either the hub or thermostat. Intervals between 1 and 15 seconds inclusive are not recommended, however. An interval of 0 disabled polling and the device will only be updated when *Refresh* commands are executed.
 
 Some commands, like mode changes, are not honored by the thermostat when its programmed schedule is in effect (running). When *Auto Program Stop* is on, the thermostat's running program will be stopped if a command is attempted that would otherwise be ignored. If you turn this setting off, you will need to stop the running program yourself (see the `setProgram` and `programStop` commands) before issuing mode changes, to ensure that they will be honored by the thermostat.
 
@@ -141,4 +141,4 @@ Support questions, bug reports and enhancement requests are welcome! There are t
 
 <hr>
 
-Copyright 2021 Patrick H. Rigney (toggledbits), All Rights Reserved. Please see the LICENSE file for further information.
+Copyright 2021,2022 Patrick H. Rigney (toggledbits), All Rights Reserved. Please see the LICENSE file for further information.
