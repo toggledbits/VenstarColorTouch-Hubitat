@@ -1,7 +1,7 @@
 /**
  *  Venstar ColorTouch Thermostat Driver for Hubitat Elevation
  *
- *  (C) 2021 Patrick H. Rigney (toggledbits), All Rights Reserved
+ *  (C) 2021,2022 Patrick H. Rigney (toggledbits), All Rights Reserved
  *
  *  Licensed under the MIT License.
  *  https://github.com/toggledbits/VenstarColorTouch-Hubitat/blob/main/LICENSE
@@ -13,6 +13,7 @@
  *  Revision History
  *  Stamp By           Description
  *  ----- ------------ ---------------------------------------------------------
+ *  22138 toggledbits  Add Initialize capability (completion).
  *  22104 toggledbits  It appears the older T59xx/69xx thermostats report humid-
  *                     ity oddly as compared to newer models. Try to work around
  *                     this.
@@ -36,6 +37,7 @@ metadata {
         importUri: "https://raw.githubusercontent.com/toggledbits/VenstarColorTouch-Hubitat/main/drivers/VenstarColorTouch.groovy") {
 
         capability "Refresh"
+        capability "Initialize"
         capability "Thermostat"
         capability "Sensor"
         capability "Actuator"
@@ -163,16 +165,14 @@ private def round( n, d=1 ) {
 
 def installed() {
     D( "installed()" )
-    log.info("Venstar ColorTouch Driver by toggledbits version 22104 installed")
+    log.info("Venstar ColorTouch Driver by toggledbits version 22138 installed")
     state.pollInterval = 60
     initialize()
 }
 
 def initialize() {
     D( "initialize()" )
-    unschedule()
-    state.failCount = 0
-    state.lastpoll = 0
+
     updated()
 }
 
@@ -183,6 +183,7 @@ def updated() {
 
     state.pollInterval = pollInterval
     state.lastpoll = 0
+	state.failCount = 0
 
     sendCommand( "", null, { r,e -> handleHelloResponse(r,e) } )
 
@@ -207,7 +208,7 @@ def refresh() {
 def do_refresh() {
     D( "do_refresh()" )
 
-    state.driver_version = 22104
+    state.driver_version = 22138
 
     if ( "" != thermostatIp ) {
         /* Schedule next query immediately */
