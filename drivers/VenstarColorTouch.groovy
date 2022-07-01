@@ -183,7 +183,7 @@ def updated() {
 
     state.pollInterval = pollInterval
     state.lastpoll = 0
-	state.failCount = 0
+    state.failCount = 0
 
     sendCommand( "", null, { r,e -> handleHelloResponse(r,e) } )
 
@@ -217,6 +217,7 @@ def do_refresh() {
             runIn( state.pollInterval, do_refresh )
             D("do_refresh() armed for next poll in ${state.pollInterval} secs")
         } else {
+            log.info( "Requesting refresh (polling is disabled)" )
             updateChanged( "online", false, "OFF-LINE (not polling)" )
         }
 
