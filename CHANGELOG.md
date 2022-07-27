@@ -1,5 +1,10 @@
 # Changelog for Venstar ColorTouch Thermostat Hubitat Driver
 
+## 22208
+
+* Change method argument to runIn*(), other devs have reported that use of non-string (i.e. method reference) can lead to inconsistent results, although another post refutes this. But the docs do say use a string. Ref: https://community.hubitat.com/t/latest-release-possible-runin-issues-see-example/81060 and https://community.hubitat.com/t/runin-not-scheduling-event/35005/7
+* Tighten handling of HTTP response exceptions for more clear messages when they occur (e.g. differentiate HTTP errors vs response content parse errors more clearly).
+kk
 ## 22138
 
 * Initialize capability added for parity with function (but doesn't do much at this point).

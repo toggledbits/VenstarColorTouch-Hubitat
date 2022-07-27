@@ -13,6 +13,11 @@
  *  Revision History
  *  Stamp By           Description
  *  ----- ------------ ---------------------------------------------------------
+ *  22208 toggledbits  Save info response data earlier, for clarity in debug.
+ *                     Improve messages around response errors, with special
+ *                     handling for parsing errors. Fix runIn* method name
+ *                     parameter (others have reported that use of non-string
+ *                     leads to inconsistent results).
  *  22138 toggledbits  Add Initialize capability (completion).
  *  22104 toggledbits  It appears the older T59xx/69xx thermostats report humid-
  *                     ity oddly as compared to newer models. Try to work around
@@ -165,7 +170,7 @@ private def round( n, d=1 ) {
 
 def installed() {
     D( "installed()" )
-    log.info("Venstar ColorTouch Driver by toggledbits version 22138 installed")
+    log.info("Venstar ColorTouch Driver by toggledbits version 22208 installed")
     state.pollInterval = 60
     initialize()
 }
@@ -181,7 +186,7 @@ def updated() {
 
     unschedule()
 
-    state.pollInterval = pollInterval
+    state.pollInterval = pollInterval as Integer
     state.lastpoll = 0
     state.failCount = 0
 
@@ -208,13 +213,16 @@ def refresh() {
 def do_refresh() {
     D( "do_refresh()" )
 
-    state.driver_version = 22138
+    state.driver_version = 22208
 
     if ( "" != thermostatIp ) {
         /* Schedule next query immediately */
         unschedule()
         if ( state.pollInterval > 0 ) {
-            runIn( state.pollInterval, do_refresh )
+            if ( state.pollInterval < 20 ) {
+                state.pollInterval = 20
+            }
+            runIn( state.pollInterval, "do_refresh" )
             D("do_refresh() armed for next poll in ${state.pollInterval} secs")
         } else {
             log.info( "Requesting refresh (polling is disabled)" )
@@ -222,12 +230,7 @@ def do_refresh() {
         }
 
         // Even if polling is off, a refresh will query and refresh the device.
-        def req = [
-            uri: "${requestProto}://${thermostatIp}/query/info",
-            contentType: "application/json",
-            timeout: 10
-        ]
-        sendCommand( "query/info", null, { r,e -> queryInfoCallback(r,e) } )
+        sendCommand( "query/info", null, { r, e -> queryInfoCallback(r, e) } )
     } else {
         updateChanged( "online", false, "OFF-LINE (not configured)" )
     }
@@ -247,15 +250,15 @@ private def updateChanged( key, val, desctext=null, unit=null ) {
     // "null", it comes back from currentValue() as real null. Asymmetrical, gotcha.
     // D("Current value of ${key} is (${oldval==null?"null":oldval.class})${oldval} new is (${val==null?"null":val.class})${val}")
     if ( ! ( null == val || val instanceof Number || val instanceof String ) ) {
-        val = val.toString();
+        val = val.toString()
     }
     D("key ${key} oldval=${oldval} val=${val}")
     if ( oldval != val ) {
         sendEvent( name: key, value: val, unit: unit, linkText: device.displayName, descriptionText: desctext )
         if ( null != desctext && "" != desctext ) {
-            log.info( "${device.displayName}: ${desctext}" );
+            log.info( "${device.displayName}: ${desctext}" )
         } else {
-            log.info( "${device.displayName}: ${key} changed from ${oldval} to ${val}" );
+            log.info( "${device.displayName}: ${key} changed from ${oldval} to ${val}" )
         }
         return true
     }
@@ -285,14 +288,15 @@ private def handleHelloResponse( response, err ) {
 }
 
 private def queryInfoCallback(response, err) {
-    D("httpGetcallback(${response}, ${err})")
+    D("queryInfoCallback(): response=${response}, err=${err}")
 
     // D("queryInfoCallback(response) status ${response.getStatus()} headers ${response.getHeaders()}")
 
     state.lastpoll = now()
 
     if ( err != null ) {
-        E("can't query thermostat info: ${err}")
+        E("queryInfoCallback(): can't query thermostat info: ${err}")
+        state.lastdata = err as String
         if ( ++state.failCount >= 3 ) {
             updateChanged( "online", false, "OFF-LINE (thermostat unreachable)" )
         }
@@ -301,9 +305,21 @@ private def queryInfoCallback(response, err) {
         def data = response.getData()      /* or maybe parseJson( response.data ) ? */
 
         // D("state is ${state}")
-        D("data is ${data}")
+        D("queryInfoCallback(): data is ${data}")
+        state.lastdata = data
+        if ( data == null ) {
+            /* Error or unparsable response from thermostat */
+            E("queryInfoCallback(): error or unparsable response from thermostat")
+            if ( ++state.failCount >= 3 ) {
+                updateChanged( "online", false, "OFF-LINE (thermostat response error)" )
+            }
+            return
+        }
 
+        /* Process the response */
         state.failCount = 0
+        state.lastupdate = new Date()
+
         state.mode = data.mode
         state.fan = data.fan
         if ( data.tempunits != null ) {
@@ -330,8 +346,6 @@ private def queryInfoCallback(response, err) {
         state.hum_setpoint = data.hum_setpoint
         state.dehum_setpoint = data.dehum_setpoint
         state.schedule = data.schedule
-        state.lastupdate = new Date()
-        state.lastdata = data
 
         if ( state.pollInterval > 0 ) {
             updateChanged( "online", true, "Thermostat is now ONLINE" )
@@ -372,48 +386,49 @@ private def queryInfoCallback(response, err) {
             data.cooltemp = coalesce( data.cooltemp, { temp->round( fahrenheitToCelsius( temp ) ) } )
             data.heattemp = coalesce( data.heattemp, { temp->round( fahrenheitToCelsius( temp ) ) } )
         }
-        updateChanged( "temperature", data.spacetemp, "Ambient temperature is now ${data.spacetemp}", scale );
-        updateChanged( "coolingSetpoint", data.cooltemp, "Cooling setpoint is now ${data.cooltemp}", scale );
-        updateChanged( "heatingSetpoint", data.heattemp, "Heating setpoint is now ${data.heattemp}", scale );
+        updateChanged( "temperature", data.spacetemp, "Ambient temperature is now ${data.spacetemp}", scale )
+        updateChanged( "coolingSetpoint", data.cooltemp, "Cooling setpoint is now ${data.cooltemp}", scale )
+        updateChanged( "heatingSetpoint", data.heattemp, "Heating setpoint is now ${data.heattemp}", scale )
 
         /* Generic setpoint. If thermostat mode is heating, or currently in heating state, set to heating setpoint.
          * Apply same logic for cooling.
          */
         if ( data.mode == 1 || data.state == 1 ) {
-            updateChanged( "thermostatSetpoint", data.heattemp, "Setpoint is now ${data.heattemp}", scale );
+            updateChanged( "thermostatSetpoint", data.heattemp, "Setpoint is now ${data.heattemp}", scale )
         } else if ( data.mode == 2 || data.state == 2 ) {
-            updateChanged( "thermostatSetpoint", data.cooltemp, "Setpoint is now ${data.cooltemp}", scale );
+            updateChanged( "thermostatSetpoint", data.cooltemp, "Setpoint is now ${data.cooltemp}", scale )
         }
 
         /* Humidity support is broken on T59x0 (fields are odd), so work around that. T7xx0/8xx0 are normal/expected. */
         if ( thermostatModel == "2" ) {
             /* This is based on T59x0 running firmware 4.08 2022-04-14 */
-            updateChanged( "humidity", data.hum_setpoint, "Ambient relative humidity is now ${data.hum_setpoint}", "%" );
-            updateChanged( "humidificationSetpoint", data.hum, "Humidification setpoint is now ${data.hum}", "%" );
-            updateChanged( "dehumidifcationSetpoint", data.dehum_setpoint, "Dehumidification setpoint is now ${data.dehum_setpoint}", "%" );
+            updateChanged( "humidity", data.hum_setpoint, "Ambient relative humidity is now ${data.hum_setpoint}", "%" )
+            updateChanged( "humidificationSetpoint", data.hum, "Humidification setpoint is now ${data.hum}", "%" )
+            updateChanged( "dehumidifcationSetpoint", data.dehum_setpoint, "Dehumidification setpoint is now ${data.dehum_setpoint}", "%" )
         } else if ( thermostatModel != "1" && null != data.hum ) {
             /* This is normal. */
-            updateChanged( "humidity", data.hum, "Ambient relative humidity is now ${data.hum}", "%" );
-            updateChanged( "humidificationSetpoint", data.hum_setpoint, "Humidification setpoint is now ${data.hum_setpoint}", "%" );
-            updateChanged( "dehumidifcationSetpoint", data.dehum_setpoint, "Dehumidification setpoint is now ${data.dehum_setpoint}", "%" );
+            updateChanged( "humidity", data.hum, "Ambient relative humidity is now ${data.hum}", "%" )
+            updateChanged( "humidificationSetpoint", data.hum_setpoint, "Humidification setpoint is now ${data.hum_setpoint}", "%" )
+            updateChanged( "dehumidifcationSetpoint", data.dehum_setpoint, "Dehumidification setpoint is now ${data.dehum_setpoint}", "%" )
         }
 
         t = coalesce( data.schedule, { val->['stopped','running'][val] }, 'unknown' )
         updateChanged( "program", t, "Program is now ${t}" )
-        t = coalesce( data.schedulepart, { val->val==255?'n/a':(['morning','day','evening','night'][val]) }, 'unknown' );
+        t = coalesce( data.schedulepart, { val->val==255?'n/a':(['morning','day','evening','night'][val]) }, 'unknown' )
         updateChanged( "schedulePeriod", t, "Schedule period is now ${t}" )
 
         t = coalesce( data.away, { val->['present','not present'][val] }, 'unknown' )
-        updateChanged( "presence", t, "Thermostat now in ${t == 'unknown' ? t : ['HOME','AWAY'][data.away]} mode (presence)" );
+        updateChanged( "presence", t, "Thermostat now in ${t == 'unknown' ? t : ['HOME','AWAY'][data.away]} mode (presence)" )
 
         if ( state.type != 'residential' ) {
             t = coalesce( data.override, { val->['off','on'][val] }, 'unknown' )
-            updateChanged( "override", t, "Override now ${t}" );
+            updateChanged( "override", t, "Override now ${t}" )
         }
 
         sendEvent( name: "lastUpdate", value: state.lastupdate )
     } else {
-        E( "info query failed: ${response.getStatus()}, ${response.getStatusLine()}}" )
+        E( "info query failed: ${response.getStatus()}, ${response.getStatusLine()}" )
+        state.lastdata = "${response.getStatus()} ${response.getStatusLine()}"
         if ( ++state.failCount >= 3 ) {
             updateChanged( "online", false, "OFF-LINE (error)" )
         }
@@ -457,7 +472,13 @@ private def digestAuth( path, authReq, method="GET" ) {
 private def _request( rp, callback ) {
     D("_request(${rp}, callback")
     def tries = 0
-    while ( tries++ < 3 ) {
+    def last_e = null
+    while ( true ) {
+        if ( ++tries > 3 ) {
+            E("_request(): too many retries; aborting (${rp.url})")
+            callback.call( e.getResponse(), last_e )
+            break
+        }
         try {
             if ( rp.headers?.Authorization == null ) {
                 state.authmethod = 'none'
@@ -469,13 +490,14 @@ private def _request( rp, callback ) {
             httpGet( rp ) { resp->callback.call( resp, null ) }
             break
         } catch ( groovyx.net.http.HttpResponseException e ) {
-            D("response exception caught ${e.class} ${e}")
+            D("_request(): caught response exception ${e.class}: ${e}")
+            last_e = e
             if ( e.getResponse().getStatus() == 401 && "" != authUser ) {
                 if ( rp.headers?.Authorization != null ) {
-                    D("Attempted auth failed with ${rp.headers.Authorization}")
+                    D("_request(): attempted auth failed with ${rp.headers.Authorization}")
                     state.nc = 0
-                    callback.call( e.getResponse(), null );
-                    break;
+                    callback.call( e.getResponse(), e )
+                    break
                 }
                 /* Do auth if we can */
                 def authstring = e.getResponse().headers.'www-authenticate'
@@ -483,10 +505,10 @@ private def _request( rp, callback ) {
                 def ah
                 if ( authstring.startsWith( 'Digest ' ) ) {
                     def authmap = authstring.replaceAll("Digest ", "").replaceAll(", ", ",").findAll(/([^,=]+)=([^,]+)/) { full, name, value -> [name, value.replaceAll("\"", "")] }.collectEntries( { it })
-                    ah = digestAuth( new java.net.URI( rp.uri ).getPath(), authmap );
+                    ah = digestAuth( new java.net.URI( rp.uri ).getPath(), authmap )
                     state.authmethod = 'digest'
                 } else {
-                    ah = basicAuth();
+                    ah = basicAuth()
                     state.authmethod = 'basic'
                 }
                 if ( rp.headers == null ) {
@@ -494,14 +516,18 @@ private def _request( rp, callback ) {
                 } else {
                     rp.headers.Authorization = ah
                 }
-                D("_request resubmitting with ${rp.headers}")
-                madeWithAuth = true;
+                D("_request(): resubmitting with ${rp.headers}")
+                madeWithAuth = true
+            } else if ( e.getResponse().getStatus() == 200 ) {
+                D("_request: unparsable response")
+                callback.call( e.getResponse(), e.getCause() )
+                break
             } else {
-                callback.call( e.getResponse(), null );
-                break;
+                callback.call( e.getResponse(), e )
+                break
             }
         } catch( e ) {
-            E( "${e.class} ${e}" )
+            E( "_request(): ${e.class} ${e}" )
             callback.call( null, e )
             break
         }
@@ -511,8 +537,8 @@ private def _request( rp, callback ) {
 private def defaultCommandCallback( resp, err ) {
     // def result = resp.data
     /* Unconditionally schedule refresh */
-    unschedule();
-    runInMillis( 2000, do_refresh )
+    unschedule()
+    runInMillis( 2000, "do_refresh" )
     if ( err ) {
         E("command failed: ${e}")
     } else if ( resp.getStatus() != 200 ) {
@@ -527,10 +553,10 @@ private def sendCommand( command, reqparams, callback=null ) {
     def uri = "${requestProto}://${thermostatIp}/${command}?"
     if ( reqparams instanceof java.util.Map ) {
         D("sendCommand handling ${command} reqparams as Map")
-        reqparams.each( { key, val -> uri += "${key}=${val}&" } );
+        reqparams.each( { key, val -> uri += "${key}=${val}&" } )
     } else if ( reqparams instanceof java.util.List ) {
         D("sendCommand handling ${command} reqparams as List")
-        def li = reqparams.listIterator();
+        def li = reqparams.listIterator()
         while ( li.hasNext() ) {
             def el = li.next()
             uri += "${el.key}=${el.value}&"
@@ -545,7 +571,7 @@ private def sendCommand( command, reqparams, callback=null ) {
         requestContentType: "application/x-www-form-urlencoded",
         timeout: 15
     ]
-    _request( params, callback ?: { r,e -> defaultCommandCallback(r,e) } )
+    _request( params, callback ?: { r, e -> defaultCommandCallback(r, e) } )
 }
 
 private def control() {
@@ -706,9 +732,9 @@ def setSchedule( sched ) {
 
 def setThermostatFanMode( fanmode ) {
     D("setThermostatFanMode(${fanmode})")
-    fanmode = fanmode.trim();
+    fanmode = fanmode.trim()
     if ( fanmode == 'on' ) {
-        state.fan = 1; /* on */
+        state.fan = 1 /* on */
     } else if ( fanmode == 'auto' ) {
         state.fan = 0 /* auto */
     }
@@ -716,7 +742,7 @@ def setThermostatFanMode( fanmode ) {
 }
 
 def setThermostatMode( mode ) {
-    mode = mode.trim();
+    mode = mode.trim()
     if ( mode == 'auto' ) {
         state.mode = 3
     } else if ( mode == 'cool' ) {
@@ -735,14 +761,14 @@ def setPollingInterval( num ) {
     }
     if ( num >= 0 && num <= 86400 ) {
         unschedule()
-        state.pollInterval = num;
+        state.pollInterval = num
         if ( num > 0 ) {
-            def nextpoll = state.lastpoll + ( num * 1000 ) - ( new Date() ).getTime()
+            def nextpoll = state.lastpoll + ( num * 1000 ) - now()
             if ( nextpoll < 10 ) {
                 nextpoll = 10
             }
-            D("nextpoll ${nextpoll}ms")
-            runInMillis( nextpoll as Integer, do_refresh )
+            D("setPollingInterval(${num}) lastpoll ${state.lastpoll} nextpoll ${nextpoll}ms")
+            runInMillis( nextpoll as Integer, "do_refresh" )
         }
     }
 }
