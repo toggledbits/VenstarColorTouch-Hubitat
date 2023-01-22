@@ -1,7 +1,7 @@
 /**
  *  Venstar ColorTouch Thermostat Driver for Hubitat Elevation
  *
- *  (C) 2021,2022 Patrick H. Rigney (toggledbits), All Rights Reserved
+ *  (C) 2021-2023 Patrick H. Rigney (toggledbits), All Rights Reserved
  *
  *  Licensed under the MIT License.
  *  https://github.com/toggledbits/VenstarColorTouch-Hubitat/blob/main/LICENSE
@@ -13,6 +13,12 @@
  *  Revision History
  *  Stamp By           Description
  *  ----- ------------ ---------------------------------------------------------
+ *  23022 toggledbits  Proper URL-encoding of parameter values in both GET and
+ *                     POST (should have done this from the very beginning, so
+ *                     now's the second-best time to get this right). Merged
+ *                     arktronic pull request (below) for T3900.
+ *  22365 arktronic    Use POST for body, works better with T3900 (pull request
+ *                     merged by toggledbits into 23022).
  *  22208 toggledbits  Save info response data earlier, for clarity in debug.
  *                     Improve messages around response errors, with special
  *                     handling for parsing errors. Fix runIn* method name
@@ -50,25 +56,50 @@ metadata {
         capability "RelativeHumidityMeasurement"
         capability "PresenceSensor"
 
+        attribute "activeStages", "number"
+        attribute "coolingSetpoint", "number"
+        attribute "dehumidifcationSetpoint", "number"
+        attribute "heatingSetpoint", "number"
+        attribute "humidificationSetpoint", "number"
+        attribute "humidity", "number"
+        attribute "lastUpdate", "date"
+        attribute "lastUpdateEpoch", "number"
+        attribute "lastdata", "string"
         attribute "name", "string"
         attribute "online", "boolean"
-        attribute "activeStages", "number"
         attribute "override", "enum", [ "off", "on", "unknown" ]
+        attribute "presence", "enum", [ "present", "not present", "unknown" ]
         attribute "program", "enum", [ "running", "stopped", "unknown" ]
         attribute "schedulePeriod", "enum", [ "morning", "day", "evening", "night", "n/a", "unknown" ]
+        attribute "temperature", "number"
+        attribute "thermostatFanMode", "enum", [ "auto", "on" ]
         attribute "thermostatFanOperatingState", "enum", [ "off", "on" ]
-        attribute "humidificationSetpoint", "number"
-        attribute "dehumidifcationSetpoint", "number"
-        attribute "lastUpdate", "date"
+        attribute "thermostatMode", "enum", [ "off", "auto", "heat", "cool", "emergency heat" ]
+        attribute "thermostatOperatingState", "enum", [ "idle", "heating", "cooling", "delayed", "fan only" ]
+        attribute "thermostatSetpoint", "number"
 
-        command "home"
+        command "auto"
         command "away"
-        command "setHumidificationSetpoint", [[name:"setpoint", type:"NUMBER", description:"New humidification setpoint"]]
-        command "setDehumidificationSetpoint", [[ name: "setpoint", type: "NUMBER" ]]
-        command "setProgram", [[ name: "action", type: "ENUM", constraints: ["run","stop"] ]]
+        command "cool"
+        command "emergencyHeat"
+        command "fanAuto"
+        command "fanCirculate"
+        command "fanOn"
+        command "heat"
+        command "home"
+        command "initialize"
+        command "off"
         command "programRun"
         command "programStop"
-        command "setPollingInterval", [[ name: "interval", type: "NUMBER" ]]
+        command "refresh"
+        command "setCoolingSetpoint", [[ name: "temperature", type: "NUMBER", description:"New cooling setpoint" ]]
+        command "setDehumidificationSetpoint", [[ name: "setpoint", type: "NUMBER", description: "New dehumidification setpoint" ]]
+        command "setHeatingSetpoint", [[ name: "temperature", type: "NUMBER", description:"New heating setpoint" ]]
+        command "setHumidificationSetpoint", [[name:"setpoint", type:"NUMBER", description:"New humidification setpoint"]]
+        command "setPollingInterval", [[ name: "interval", type: "NUMBER", description:"New polling interval (seconds)" ]]
+        command "setProgram", [[ name: "action", type: "ENUM", constraints: ["run","stop"] ]]
+        command "setThermostatFanMode", [[ name: "fanmode", type: "ENUM", constraints: ["auto","on","circulate"] ]]
+        command "setThermostatMode", [[ name: "thermostatmode", type: "ENUM", constraints: ["off","heat","cool","auto","emergency heat"] ]]
     }
 
     preferences {
@@ -84,7 +115,7 @@ metadata {
                 name: "thermostatModel",
                 title: "Thermostat Model",
                 options: [
-                    "0": "T78x0/79x0/88x0/89x0",
+                    "0": "T78x0/79x0/88x0/89x0/39x0",
                     "1": "T58x0/68x0",
                     "2": "T59x0/69x0"
                 ],
@@ -170,13 +201,15 @@ private def round( n, d=1 ) {
 
 def installed() {
     D( "installed()" )
-    log.info("Venstar ColorTouch Driver by toggledbits version 22208 installed")
+    log.info("Venstar ColorTouch Driver by toggledbits version 23022 installed")
     state.pollInterval = 60
     initialize()
 }
 
 def initialize() {
     D( "initialize()" )
+
+    state.remove( "lastdata" )
 
     updated()
 }
@@ -213,7 +246,7 @@ def refresh() {
 def do_refresh() {
     D( "do_refresh()" )
 
-    state.driver_version = 22208
+    state.driver_version = 23022
 
     if ( "" != thermostatIp ) {
         /* Schedule next query immediately */
@@ -296,7 +329,8 @@ private def queryInfoCallback(response, err) {
 
     if ( err != null ) {
         E("queryInfoCallback(): can't query thermostat info: ${err}")
-        state.lastdata = err as String
+        // state.lastdata = null
+        sendEvent( name: "lastdata", value: err as String )
         if ( ++state.failCount >= 3 ) {
             updateChanged( "online", false, "OFF-LINE (thermostat unreachable)" )
         }
@@ -306,7 +340,11 @@ private def queryInfoCallback(response, err) {
 
         // D("state is ${state}")
         D("queryInfoCallback(): data is ${data}")
-        state.lastdata = data
+        // state.lastdata = null
+        sendEvent( name: "lastdata", value: data as String )
+        sendEvent( name: "lastUpdate", value: new Date() )
+        sendEvent( name: "lastUpdateEpoch", value: now() )
+
         if ( data == null ) {
             /* Error or unparsable response from thermostat */
             E("queryInfoCallback(): error or unparsable response from thermostat")
@@ -318,7 +356,6 @@ private def queryInfoCallback(response, err) {
 
         /* Process the response */
         state.failCount = 0
-        state.lastupdate = new Date()
 
         state.mode = data.mode
         state.fan = data.fan
@@ -357,7 +394,7 @@ private def queryInfoCallback(response, err) {
         updateChanged( "thermostatMode", t, "Thermostat mode changed to ${t}" )
 
         /* We add our own HE operating state "fan only" when thermostat is idle but fan is on */
-        t = ['idle','heating','cooling'][ data.state ]
+        t = ['idle','heating','cooling','delayed'][ data.state ]
         if ( t == "idle" && data.fanstate != 0 ) {
             t = "fan only"
         }
@@ -424,11 +461,10 @@ private def queryInfoCallback(response, err) {
             t = coalesce( data.override, { val->['off','on'][val] }, 'unknown' )
             updateChanged( "override", t, "Override now ${t}" )
         }
-
-        sendEvent( name: "lastUpdate", value: state.lastupdate )
     } else {
         E( "info query failed: ${response.getStatus()}, ${response.getStatusLine()}" )
-        state.lastdata = "${response.getStatus()} ${response.getStatusLine()}"
+        // state.lastdata = null
+        sendEvent( name: "lastdata", value: response.getStatusLine() )
         if ( ++state.failCount >= 3 ) {
             updateChanged( "online", false, "OFF-LINE (error)" )
         }
@@ -487,7 +523,14 @@ private def _request( rp, callback ) {
                 rp.ignoreSSLIssues = true
             }
             D("_request() sending request ${rp}")
-            httpGet( rp ) { resp->callback.call( resp, null ) }
+            if ( rp.body == null ) {
+                D("_request: requesting (GET) ${rp.uri}")
+                httpGet( rp ) { resp->callback.call( resp, null ) }
+            }
+            else {
+                D("_request: sending POST to ${rp.uri} with body ${rp.body}")
+                httpPost( rp ) { resp->callback.call( resp, null ) }
+            }
             break
         } catch ( groovyx.net.http.HttpResponseException e ) {
             D("_request(): caught response exception ${e.class}: ${e}")
@@ -550,16 +593,17 @@ private def defaultCommandCallback( resp, err ) {
 
 private def sendCommand( command, reqparams, callback=null ) {
     D("sendCommand(${command}, ${reqparams})")
-    def uri = "${requestProto}://${thermostatIp}/${command}?"
+    def uri = "${requestProto}://${thermostatIp}/${command}"
+    def body = ""
     if ( reqparams instanceof java.util.Map ) {
         D("sendCommand handling ${command} reqparams as Map")
-        reqparams.each( { key, val -> uri += "${key}=${val}&" } )
+        reqparams.each( { key, val -> body += "${key}=${java.net.URLEncoder.encode(val.toString(), 'UTF-8')}&" } );
     } else if ( reqparams instanceof java.util.List ) {
         D("sendCommand handling ${command} reqparams as List")
         def li = reqparams.listIterator()
         while ( li.hasNext() ) {
             def el = li.next()
-            uri += "${el.key}=${el.value}&"
+            body += "${el.key}=${java.net.URLEncoder.encode(el.value.toString(), 'UTF-8')}&"
         }
     } else if ( reqparams != null ) {
         E("bug, can't handle reqparams=${reqparams.class}")
@@ -567,6 +611,7 @@ private def sendCommand( command, reqparams, callback=null ) {
     D("sending request to ${uri.toString()}")
     def params = [
         uri: uri,
+        body: (body.equals("") ? null : body),
         contentType: "application/json",
         requestContentType: "application/x-www-form-urlencoded",
         timeout: 15

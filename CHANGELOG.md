@@ -1,5 +1,12 @@
 # Changelog for Venstar ColorTouch Thermostat Hubitat Driver
 
+## 23022
+
+* Provide complete declarations of all attributes and commands.
+* Detect and report thermostat reported operating state 3 (equipment delay).
+* Fix construction of request parameters so that their values are URL-encoded (request keys are not expected to include characters that would require escaping, so are not included in this change).
+* Merge pull request from arktronic for T3900 (use HTTP POST for passing parameters).
+
 ## 22208
 
 * Change method argument to runIn*(), other devs have reported that use of non-string (i.e. method reference) can lead to inconsistent results, although another post refutes this. But the docs do say use a string. Ref: https://community.hubitat.com/t/latest-release-possible-runin-issues-see-example/81060 and https://community.hubitat.com/t/runin-not-scheduling-event/35005/7
