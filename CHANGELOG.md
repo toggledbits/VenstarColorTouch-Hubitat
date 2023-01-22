@@ -2,8 +2,9 @@
 
 ## 23022
 
-* Provide complete declarations of all attributes and commands.
+* Provide complete declarations of all attributes and commands in header.
 * Detect and report thermostat reported operating state 3 (equipment delay).
+* Add `lastUpdateEpoch` attribute (Epoch timestamp to match `lastUpdate`).
 * Fix construction of request parameters so that their values are URL-encoded (request keys are not expected to include characters that would require escaping, so are not included in this change).
 * Merge pull request from arktronic for T3900 (use HTTP POST for passing parameters).
 
