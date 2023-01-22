@@ -77,7 +77,7 @@ metadata {
                 name: "thermostatModel",
                 title: "Thermostat Model",
                 options: [
-                    "0": "T78x0/79x0/88x0/89x0",
+                    "0": "T78x0/79x0/88x0/89x0/39x0",
                     "1": "T58x0/68x0",
                     "2": "T59x0/69x0"
                 ],
@@ -464,7 +464,12 @@ private def _request( rp, callback ) {
                 rp.ignoreSSLIssues = true
             }
             D("_request() sending request ${rp}")
-            httpGet( rp ) { resp->callback.call( resp, null ) }
+            if ( rp.body == null ) {
+                httpGet( rp ) { resp->callback.call( resp, null ) }
+            }
+            else {
+                httpPost( rp ) { resp->callback.call( resp, null ) }
+            }
             break
         } catch ( groovyx.net.http.HttpResponseException e ) {
             D("response exception caught ${e.class} ${e}")
@@ -522,23 +527,26 @@ private def defaultCommandCallback( resp, err ) {
 
 private def sendCommand( command, reqparams, callback=null ) {
     D("sendCommand(${command}, ${reqparams})")
-    def uri = "${requestProto}://${thermostatIp}/${command}?"
+    def uri = "${requestProto}://${thermostatIp}/${command}"
+    def body = ""
     if ( reqparams instanceof java.util.Map ) {
         D("sendCommand handling ${command} reqparams as Map")
-        reqparams.each( { key, val -> uri += "${key}=${val}&" } );
+        reqparams.each( { key, val -> body += "${key}=${val}&" } );
     } else if ( reqparams instanceof java.util.List ) {
         D("sendCommand handling ${command} reqparams as List")
         def li = reqparams.listIterator();
         while ( li.hasNext() ) {
             def el = li.next()
-            uri += "${el.key}=${el.value}&"
+            body += "${el.key}=${el.value}&"
         }
     } else if ( reqparams != null ) {
         E("bug, can't handle reqparams=${reqparams.class}")
     }
+    body = body.replaceAll(/[?&]+$/, '')
     D("sending request to ${uri.toString()}")
     def params = [
         uri: uri,
+        body: (body.equals("") ? null : body),
         contentType: "application/json",
         requestContentType: "application/x-www-form-urlencoded",
         timeout: 15
