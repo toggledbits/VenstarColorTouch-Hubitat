@@ -608,6 +608,7 @@ private def sendCommand( command, reqparams, callback=null ) {
     } else if ( reqparams != null ) {
         E("bug, can't handle reqparams=${reqparams.class}")
     }
+    body = body.replaceAll( /&$/, "" )  /* T3900 can't parse trailing & */
     D("sending request to ${uri.toString()}")
     def params = [
         uri: uri,
