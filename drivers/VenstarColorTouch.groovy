@@ -246,14 +246,14 @@ def refresh() {
 def do_refresh() {
     D( "do_refresh()" )
 
-    if ( state.driver_version != 23033 || null == state.model ) {
-        W("Driver version change detected; re-initializing")
-        state.driver_version = 23033
-        updated()  // comes back here eventually
-        return
-    }
-
     if ( "" != thermostatIp ) {
+        if ( state.driver_version != 23033 || null == state.model ) {
+            W("Driver version change detected; re-initializing")
+            state.driver_version = 23033
+            updated()  // comes back here eventually
+            return
+        }
+
         /* Schedule next query immediately */
         unschedule()
         if ( state.pollInterval > 0 ) {
@@ -312,7 +312,7 @@ private def handleHelloResponse( response, err ) {
         D("thermostat's hello data is ${data}")
         state.api_ver = data.api_ver
         state.type = data.type
-        state.model = data.model
+        state.model = data.model ?: "UNKNOWN"
         state.firmware = data.firmware
 
         do_refresh()
