@@ -13,6 +13,10 @@
  *  Revision History
  *  Stamp By           Description
  *  ----- ------------ ---------------------------------------------------------
+ *  23033 toggledbits  Fix supportedThermostatModes and supportedFanModes attrs
+ *                     for dashboard menus. Thanks to jonathanb for the tip.
+ *                     Fix initialization of modes and order of operations.
+ *                     Detect change of driver version and re-initialize.
  *  23022 toggledbits  Proper URL-encoding of parameter values in both GET and
  *                     POST (should have done this from the very beginning, so
  *                     now's the second-best time to get this right). Merged
@@ -71,6 +75,8 @@ metadata {
         attribute "presence", "enum", [ "present", "not present", "unknown" ]
         attribute "program", "enum", [ "running", "stopped", "unknown" ]
         attribute "schedulePeriod", "enum", [ "morning", "day", "evening", "night", "n/a", "unknown" ]
+        attribute "supportedThermostatFanModes", "JSON_OBJECT"
+        attribute "supportedThermostatModes", "JSON_OBJECT"
         attribute "temperature", "number"
         attribute "thermostatFanMode", "enum", [ "auto", "on" ]
         attribute "thermostatFanOperatingState", "enum", [ "off", "on" ]
@@ -201,7 +207,7 @@ private def round( n, d=1 ) {
 
 def installed() {
     D( "installed()" )
-    log.info("Venstar ColorTouch Driver by toggledbits version 23022 installed")
+    log.info("Venstar ColorTouch Driver by toggledbits version 23033 installed")
     state.pollInterval = 60
     initialize()
 }
@@ -223,18 +229,12 @@ def updated() {
     state.lastpoll = 0
     state.failCount = 0
 
+    // Fan modes are static, so set them here (rarely); thermostat modes are set by refresh
+    // now because that is returned by the info query.
+    updateChanged( "supportedThermostatFanModes", groovy.json.JsonOutput.toJson([ "auto", "on" ]),
+                  "Supported fan modes have changed" )
+
     sendCommand( "", null, { r,e -> handleHelloResponse(r,e) } )
-
-    updateChanged( "supportedThermostatModes",
-                  coalesce( state.availablemodes ?: 0, { val->[
-                      [ "off","heat","cool","auto" ], /* 0 */
-                      [ "off","heat","cool" ],        /* 1 */
-                      [ "off","heat" ],               /* 2 */
-                      [ "off","cool" ]                /* 3 */
-                  ][val] } ), "Supported operating modes have changed" )
-    updateChanged( "supportedThermostatFanModes", [ "auto", "on" ], "Supported fan modes have changed" )
-
-    do_refresh()
 }
 
 def refresh() {
@@ -246,7 +246,12 @@ def refresh() {
 def do_refresh() {
     D( "do_refresh()" )
 
-    state.driver_version = 23022
+    if ( state.driver_version != 23033 || null == state.model ) {
+        W("Driver version change detected; re-initializing")
+        state.driver_version = 23033
+        updated()  // comes back here eventually
+        return
+    }
 
     if ( "" != thermostatIp ) {
         /* Schedule next query immediately */
@@ -308,6 +313,8 @@ private def handleHelloResponse( response, err ) {
         state.type = data.type
         state.model = data.model
         state.firmware = data.firmware
+
+        do_refresh()
         return
     }
 
@@ -318,6 +325,9 @@ private def handleHelloResponse( response, err ) {
     } else {
         E("hello failed: ${response.getStatus()} ${response.getStatusLine()}")
     }
+
+    unschedule()
+    runIn( state.pollInterval, "do_refresh" )
 }
 
 private def queryInfoCallback(response, err) {
@@ -356,6 +366,15 @@ private def queryInfoCallback(response, err) {
 
         /* Process the response */
         state.failCount = 0
+
+        state.availablemodes = data.availablemodes ?: 0
+        updateChanged( "supportedThermostatModes",
+                      groovy.json.JsonOutput.toJson(coalesce( state.availablemodes, { val->[
+                          [ "off","heat","cool","auto" ], /* 0 */
+                          [ "off","heat","cool" ],        /* 1 */
+                          [ "off","heat" ],               /* 2 */
+                          [ "off","cool" ]                /* 3 */
+                      ][val] } )), "Supported operating modes have changed" )
 
         state.mode = data.mode
         state.fan = data.fan

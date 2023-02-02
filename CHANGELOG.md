@@ -1,5 +1,9 @@
 # Changelog for Venstar ColorTouch Thermostat Hubitat Driver
 
+## 23033
+
+* Fix supportedThermostatModes and supportedFanModes attrs for dashboard menus. Thanks to jonathanb for the tip. Fix initialization of modes and order of operations. Detect change of driver version and re-initialize.
+
 ## 23022
 
 * Provide complete declarations of all attributes and commands in header.
