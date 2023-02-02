@@ -288,6 +288,7 @@ private def updateChanged( key, val, desctext=null, unit=null ) {
     // "null", it comes back from currentValue() as real null. Asymmetrical, gotcha.
     // D("Current value of ${key} is (${oldval==null?"null":oldval.class})${oldval} new is (${val==null?"null":val.class})${val}")
     if ( ! ( null == val || val instanceof Number || val instanceof String ) ) {
+        // Investigate: this may have distrupted dashboard's expectation for enums (using JSON now).
         val = val.toString()
     }
     D("key ${key} oldval=${oldval} val=${val}")
@@ -327,7 +328,9 @@ private def handleHelloResponse( response, err ) {
     }
 
     unschedule()
-    runIn( state.pollInterval, "do_refresh" )
+    if ( ( state.pollInterval ?: 0 ) > 0 ) {
+        runIn( state.pollInterval, "do_refresh" )
+    }
 }
 
 private def queryInfoCallback(response, err) {
