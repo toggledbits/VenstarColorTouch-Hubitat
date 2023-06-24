@@ -58,6 +58,12 @@ Once you have completed these steps, confirm that your thermostat's API is reach
 
 You can then create a device for the thermostat using the driver.
 
+If you would like to make use of built-in or connected sensors, you will need to import a second driver from this URL:
+
+    https://raw.githubusercontent.com/toggledbits/VenstarColorTouch-Hubitat/main/drivers/VenstarSensor.groovy
+
+Once both drivers have been imported and you have created a thermostat device, click the "Create Sensor Child Devices" command button on your newly created thermostat device. This will automatically create child devices for all sensors that are present.
+
 ## Device Configuration
 
 Configuration should be pretty straight-forward. You need to supply the IP address of the thermostat and select the API protocol (HTTP or HTTPS), at a minimum, and of course, these need to match the configuration of the thermostat itself.
