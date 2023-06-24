@@ -8,7 +8,7 @@
  *
  *  Project repo: https://github.com/toggledbits/VenstarColorTouch-Hubitat
  *
- *  TO-DO: Query sensors and maybe create child devices; query runtimes.
+ *  TO-DO: Query runtimes.
  *
  *  Revision History
  *  Stamp By           Description
@@ -106,6 +106,7 @@ metadata {
         command "setProgram", [[ name: "action", type: "ENUM", constraints: ["run","stop"] ]]
         command "setThermostatFanMode", [[ name: "fanmode", type: "ENUM", constraints: ["auto","on","circulate"] ]]
         command "setThermostatMode", [[ name: "thermostatmode", type: "ENUM", constraints: ["off","heat","cool","auto","emergency heat"] ]]
+        command "createSensorChildDevices"
     }
 
     preferences {
@@ -121,7 +122,7 @@ metadata {
                 name: "thermostatModel",
                 title: "Thermostat Model",
                 options: [
-                    "0": "T78x0/79x0/88x0/89x0/39x0",
+                    "0": "T78x0/79x0/88x0/89x0/39x0/49x0",
                     "1": "T58x0/68x0",
                     "2": "T59x0/69x0"
                 ],
@@ -183,6 +184,12 @@ metadata {
                 title: "Enable debug logging",
                 defaultValue: false
             )
+            input (
+                type: "bool",
+                name: "enableDescriptionLogging",
+                title: "Enable descriptionText logging",
+                defaultValue: true
+            )
         }
     }
 }
@@ -239,7 +246,7 @@ def updated() {
 
 def refresh() {
     D( "refresh()" )
-    log.info( "Refreshing (querying thermostat)" )
+    if ( enableDescriptionLogging ) log.info( "Refreshing (querying thermostat)" )
     do_refresh()
 }
 
@@ -263,7 +270,7 @@ def do_refresh() {
             runIn( state.pollInterval, "do_refresh" )
             D("do_refresh() armed for next poll in ${state.pollInterval} secs")
         } else {
-            log.info( "Requesting refresh (polling is disabled)" )
+            if ( enableDescriptionLogging ) log.info( "Requesting refresh (polling is disabled)" )
             updateChanged( "online", false, "OFF-LINE (not polling)" )
         }
 
@@ -294,10 +301,12 @@ private def updateChanged( key, val, desctext=null, unit=null ) {
     D("key ${key} oldval=${oldval} val=${val}")
     if ( oldval != val ) {
         sendEvent( name: key, value: val, unit: unit, linkText: device.displayName, descriptionText: desctext )
-        if ( null != desctext && "" != desctext ) {
-            log.info( "${device.displayName}: ${desctext}" )
-        } else {
-            log.info( "${device.displayName}: ${key} changed from ${oldval} to ${val}" )
+        if ( enableDescriptionLogging ) {
+            if ( null != desctext && "" != desctext ) {
+                log.info( "${device.displayName}: ${desctext}" )
+            } else {
+                log.info( "${device.displayName}: ${key} changed from ${oldval} to ${val}" )
+            }
         }
         return true
     }
@@ -308,7 +317,7 @@ private def handleHelloResponse( response, err ) {
     D("handleHelloResponse(${response}, ${err})")
     if ( err == null && response.getStatus() == 200 ) {
         def data = response.getData()
-        log.info "${device.displayName} successful \"hello\" query to thermostat."
+        if ( enableDescriptionLogging ) log.info( "${device.displayName} successful \"hello\" query to thermostat." )
         D("thermostat's hello data is ${data}")
         state.api_ver = data.api_ver
         state.type = data.type
@@ -483,6 +492,11 @@ private def queryInfoCallback(response, err) {
             t = coalesce( data.override, { val->['off','on'][val] }, 'unknown' )
             updateChanged( "override", t, "Override now ${t}" )
         }
+
+        if ( getChildDevices().size() > 0 ) {
+            /* Since child devices exist, query the sensors endpoint. */
+            sendCommand( "query/sensors", null, { r, e -> querySensorsCallback(r, e, false) } )
+        }
     } else {
         E( "info query failed: ${response.getStatus()}, ${response.getStatusLine()}" )
         // state.lastdata = null
@@ -490,6 +504,50 @@ private def queryInfoCallback(response, err) {
         if ( ++state.failCount >= 3 ) {
             updateChanged( "online", false, "OFF-LINE (error)" )
         }
+    }
+}
+
+private def querySensorsCallback(response, err, createSensorChildDevices) {
+    D("querySensorsCallback(): response=${response}, err=${err}, createSensorChildDevices=${createSensorChildDevices}")
+
+    if ( err != null ) {
+        E("querySensorsCallback(): can't query thermostat sensors: ${err}")
+    } else if ( 200 == response.getStatus() ) {
+        def scale = configUnits == "hub" ? getTemperatureScale() : configUnits
+        def data = response.getData()      /* or maybe parseJson( response.data ) ? */
+
+        D("querySensorsCallback(): data is ${data}")
+        sendEvent( name: "lastUpdate", value: new Date() )
+        sendEvent( name: "lastUpdateEpoch", value: now() )
+
+        if ( data == null || data["sensors"] == null ) {
+            E("querySensorsCallback(): error or unparsable response from thermostat")
+            return
+        }
+
+        /* Process the response */
+
+        state.sensor_count = data.sensors.size()
+        data.sensors.each {
+            def dni = "${device.deviceNetworkId}_sensor_${it.name}"
+            def childDevice = getChildDevice(dni)
+
+            if ( createSensorChildDevices ) {
+                if ( childDevice == null ) {
+                    D("Adding child device for sensor \"${it.name}\"")
+                    childDevice = addChildDevice( "toggledbits.com", "Venstar Thermostat Sensor", dni, [label: "Venstar Thermostat Sensor - ${it.name}"] )
+                } else {
+                    D("Skipping creation of child device for sensor \"${it.name}\" because it already exists")
+                }
+            }
+
+            if ( childDevice != null ) {
+                childDevice.processSensorData( it, state.tempunits )
+            }
+        }
+
+    } else {
+        E( "sensors query failed: ${response.getStatus()}, ${response.getStatusLine()}" )
     }
 }
 
@@ -773,7 +831,7 @@ def setHeatingSetpoint( temperature ) {
         ttemp = round( fahrenheitToCelsius( ttemp ) )
     }
     if ( ttemp < state.heattempmin ) {
-        W( "requested heating setpoint ${ttemp} is below minumum (${state.heattempmin}); limiting to minimum" )
+        W( "requested heating setpoint ${ttemp} is below minimum (${state.heattempmin}); limiting to minimum" )
         ttemp = state.heattempmin
     } else if ( ttemp > state.heattempmax ) {
         W( "requested heating setpoint ${ttemp} exceeds maximum (${state.heattempmax}); limiting to maximum" )
@@ -883,4 +941,8 @@ def programRun() {
 
 def programStop() {
     sendCommand( 'settings', [ schedule: 0 ] )
+}
+
+def createSensorChildDevices() {
+    sendCommand( "query/sensors", null, { r, e -> querySensorsCallback(r, e, true) } )
 }
